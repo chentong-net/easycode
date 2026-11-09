@@ -65,44 +65,31 @@ export type TaskBudget = z.infer<typeof TaskBudget>
 /**
  * 可重放的任务工作记忆。它独立于聊天消息存在，执行 compaction（压缩）时不会随摘要丢失。
  */
-export const TaskState = z.preprocess(
-  (value) => {
-    if (typeof value !== "object" || value === null) return value
-    const task = { ...(value as Record<string, unknown>) }
-    if (task.phase === "verify") task.phase = "execute"
-    if (typeof task.contract === "object" && task.contract !== null) {
-      const contract = { ...(task.contract as Record<string, unknown>) }
-      if (contract.kind === "verify") contract.kind = "investigate"
-      task.contract = contract
-    }
-    return task
-  },
-  z.object({
-    version: z.literal(1),
-    contract: TaskContract,
-    phase: TaskPhase,
-    changedPaths: z.array(z.string()),
-    toolCalls: z.number().int().nonnegative(),
-    repeatedToolCalls: z.number().int().nonnegative(),
-    /** 待办清单实际发生内容或状态变化时递增。 */
-    todoRevision: z.number().int().nonnegative().default(0),
-    /** 最近一次真实待办更新发生时的累计工具调用序号。 */
-    lastTodoUpdateToolCall: z.number().int().nonnegative().default(0),
-    /** 已经针对哪个待办版本发出过停滞提醒。 */
-    todoReminderRevision: z.number().int().nonnegative().optional(),
-    lastToolSignature: z.string().optional(),
-    lastObservation: z.string().optional(),
-    budget: TaskBudget.default({
-      softSteps: 20,
-      hardSteps: 30,
-      checkpointSteps: 30,
-      totalSteps: 0,
-      usedSteps: 0,
-      exhausted: false,
-      extensions: 0,
-    }),
-    outcome: TaskOutcome.optional(),
+export const TaskState = z.object({
+  version: z.literal(1),
+  contract: TaskContract,
+  phase: TaskPhase,
+  changedPaths: z.array(z.string()),
+  toolCalls: z.number().int().nonnegative(),
+  repeatedToolCalls: z.number().int().nonnegative(),
+  /** 待办清单实际发生内容或状态变化时递增。 */
+  todoRevision: z.number().int().nonnegative().default(0),
+  /** 最近一次真实待办更新发生时的累计工具调用序号。 */
+  lastTodoUpdateToolCall: z.number().int().nonnegative().default(0),
+  /** 已经针对哪个待办版本发出过停滞提醒。 */
+  todoReminderRevision: z.number().int().nonnegative().optional(),
+  lastToolSignature: z.string().optional(),
+  lastObservation: z.string().optional(),
+  budget: TaskBudget.default({
+    softSteps: 20,
+    hardSteps: 30,
+    checkpointSteps: 30,
+    totalSteps: 0,
+    usedSteps: 0,
+    exhausted: false,
+    extensions: 0,
   }),
-)
+  outcome: TaskOutcome.optional(),
+})
 
 export type TaskState = z.infer<typeof TaskState>
