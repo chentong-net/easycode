@@ -7,17 +7,9 @@ const PHASE_LABELS: Record<TaskPhase, string> = {
   investigate: "调查代码",
   plan: "整理计划",
   execute: "执行修改",
-  verify: "运行验证",
   finalize: "收尾总结",
   blocked: "遇到阻塞",
 }
-
-const VERIFICATION_LABELS = {
-  unknown: "未验证",
-  stale: "待重新验证",
-  passed: "验证通过",
-  failed: "验证失败",
-} as const
 
 const OUTCOME_LABELS = {
   success: "已完成",
@@ -41,7 +33,6 @@ export const TaskProgress = ({
   const outcome = task.outcome
   const tone = outcome?.status ?? (task.phase === "blocked" ? "blocked" : "active")
   const completedTodos = todos.filter((todo) => todo.status === "completed").length
-  const latestVerification = task.verifications.at(-1)
   const visiblePaths = task.changedPaths.slice(0, 5)
 
   return (
@@ -88,9 +79,6 @@ export const TaskProgress = ({
             <span>
               修改文件 <strong>{task.changedPaths.length}</strong>
             </span>
-            <span className={`task-verification task-verification-${task.verificationStatus}`}>
-              {VERIFICATION_LABELS[task.verificationStatus]}
-            </span>
             <span>
               累计步骤 <strong>{task.budget.totalSteps}</strong>
             </span>
@@ -112,12 +100,6 @@ export const TaskProgress = ({
                 <span>另有 {task.changedPaths.length - visiblePaths.length} 个文件</span>
               )}
             </div>
-          )}
-
-          {latestVerification !== undefined && (
-            <p className={`task-verification-summary task-verification-${latestVerification.status}`}>
-              最近验证：{latestVerification.summary}
-            </p>
           )}
 
           {outcome !== undefined && outcome.remaining.length > 0 && (

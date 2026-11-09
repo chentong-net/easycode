@@ -3,7 +3,7 @@ import { z } from "zod"
 /**
  * 任务类型决定 Runner 对完成条件的基本判断，不直接改变工具权限。
  */
-export const TaskKind = z.enum(["answer", "investigate", "implement", "fix", "verify"])
+export const TaskKind = z.enum(["answer", "investigate", "implement", "fix"])
 
 export type TaskKind = z.infer<typeof TaskKind>
 
@@ -15,31 +15,11 @@ export const TaskPhase = z.enum([
   "investigate",
   "plan",
   "execute",
-  "verify",
   "finalize",
   "blocked",
 ])
 
 export type TaskPhase = z.infer<typeof TaskPhase>
-
-export const VerificationStatus = z.enum(["unknown", "stale", "passed", "failed"])
-
-export type VerificationStatus = z.infer<typeof VerificationStatus>
-
-export const VerificationResult = z.enum(["passed", "failed", "unknown"])
-
-export type VerificationResult = z.infer<typeof VerificationResult>
-
-/** 一次验证命令的结构化证据，避免模型只能从自由文本猜测是否通过。 */
-export const VerificationRecord = z.object({
-  command: z.string().optional(),
-  status: VerificationResult,
-  summary: z.string(),
-  callID: z.string().optional(),
-  timestamp: z.number(),
-})
-
-export type VerificationRecord = z.infer<typeof VerificationRecord>
 
 /** compaction（压缩）和后续回合都必须保留的任务契约。 */
 export const TaskContract = z.object({
@@ -62,7 +42,6 @@ export const TaskOutcome = z.object({
   completed: z.array(z.string()),
   remaining: z.array(z.string()),
   changedPaths: z.array(z.string()),
-  verifications: z.array(VerificationRecord),
   timestamp: z.number(),
 })
 
@@ -86,35 +65,44 @@ export type TaskBudget = z.infer<typeof TaskBudget>
 /**
  * 可重放的任务工作记忆。它独立于聊天消息存在，执行 compaction（压缩）时不会随摘要丢失。
  */
-export const TaskState = z.object({
-  version: z.literal(1),
-  contract: TaskContract,
-  phase: TaskPhase,
-  changedPaths: z.array(z.string()),
-  verificationStatus: VerificationStatus,
-  verifications: z.array(VerificationRecord).max(20),
-  toolCalls: z.number().int().nonnegative(),
-  repeatedToolCalls: z.number().int().nonnegative(),
-  /** 待办清单实际发生内容或状态变化时递增。 */
-  todoRevision: z.number().int().nonnegative().default(0),
-  /** 最近一次真实待办更新发生时的累计工具调用序号。 */
-  lastTodoUpdateToolCall: z.number().int().nonnegative().default(0),
-  /** 已经针对哪个待办版本发出过停滞提醒。 */
-  todoReminderRevision: z.number().int().nonnegative().optional(),
-  mutationRevision: z.number().int().nonnegative(),
-  lastToolSignature: z.string().optional(),
-  lastObservation: z.string().optional(),
-  verificationNudgedRevision: z.number().int().nonnegative().optional(),
-  budget: TaskBudget.default({
-    softSteps: 20,
-    hardSteps: 30,
-    checkpointSteps: 30,
-    totalSteps: 0,
-    usedSteps: 0,
-    exhausted: false,
-    extensions: 0,
+export const TaskState = z.preprocess(
+  (value) => {
+    if (typeof value !== "object" || value === null) return value
+    const task = { ...(value as Record<string, unknown>) }
+    if (task.phase === "verify") task.phase = "execute"
+    if (typeof task.contract === "object" && task.contract !== null) {
+      const contract = { ...(task.contract as Record<string, unknown>) }
+      if (contract.kind === "verify") contract.kind = "investigate"
+      task.contract = contract
+    }
+    return task
+  },
+  z.object({
+    version: z.literal(1),
+    contract: TaskContract,
+    phase: TaskPhase,
+    changedPaths: z.array(z.string()),
+    toolCalls: z.number().int().nonnegative(),
+    repeatedToolCalls: z.number().int().nonnegative(),
+    /** 待办清单实际发生内容或状态变化时递增。 */
+    todoRevision: z.number().int().nonnegative().default(0),
+    /** 最近一次真实待办更新发生时的累计工具调用序号。 */
+    lastTodoUpdateToolCall: z.number().int().nonnegative().default(0),
+    /** 已经针对哪个待办版本发出过停滞提醒。 */
+    todoReminderRevision: z.number().int().nonnegative().optional(),
+    lastToolSignature: z.string().optional(),
+    lastObservation: z.string().optional(),
+    budget: TaskBudget.default({
+      softSteps: 20,
+      hardSteps: 30,
+      checkpointSteps: 30,
+      totalSteps: 0,
+      usedSteps: 0,
+      exhausted: false,
+      extensions: 0,
+    }),
+    outcome: TaskOutcome.optional(),
   }),
-  outcome: TaskOutcome.optional(),
-})
+)
 
 export type TaskState = z.infer<typeof TaskState>

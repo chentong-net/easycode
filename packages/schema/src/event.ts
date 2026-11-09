@@ -81,7 +81,7 @@ const SessionTodos = z.object({
  * 当前任务工作记忆的 snapshot（快照）。
  *
  * 任务状态不写进消息历史，避免被 compaction（压缩）当作普通对话处理。Runner 每次
- * 推进阶段、记录修改或验证结果时追加该事件，历史重放可恢复同一份状态。
+ * 推进阶段或记录修改时追加该事件，历史重放可恢复同一份状态。
  */
 const TaskUpdated = z.object({
   ...durableEnvelope,
@@ -175,7 +175,7 @@ const ToolSettled = z.object({
   outputPaths: z.array(z.string()).optional(),
   /** 错误说明，失败时存在 */
   error: z.string().optional(),
-  /** 副作用、修改文件、验证结果与失败分类等结构化语义 */
+  /** 副作用、修改文件与失败分类等结构化语义 */
   metadata: ToolMetadata.optional(),
 })
 

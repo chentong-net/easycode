@@ -66,11 +66,6 @@ const ToolCard = ({ part }: { part: ToolPart }) => {
           {view.changedPaths.length > 0 && (
             <div className="tool-paths">修改文件：{view.changedPaths.join("、")}</div>
           )}
-          {view.verification !== undefined && (
-            <div className="tool-paths">
-              验证{verificationLabel(view.verification.status)}：{view.verification.summary}
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -82,19 +77,12 @@ const toolStateView = (part: Exclude<ToolPart["state"], { status: "pending" }>) 
   text: contentText(part.content ?? []) || (part.status === "error" ? part.error : "（工具执行完成，没有输出）"),
   outputPaths: part.outputPaths ?? [],
   changedPaths: part.metadata?.changedPaths ?? [],
-  verification: part.metadata?.verification,
 })
 
 const toToolView = (part: ToolPart) =>
   part.state.status === "pending"
-    ? { ok: true, text: "", outputPaths: [], changedPaths: [], verification: undefined }
+    ? { ok: true, text: "", outputPaths: [], changedPaths: [] }
     : toolStateView(part.state)
-
-const verificationLabel = (status: "passed" | "failed" | "unknown"): string => {
-  if (status === "passed") return "通过"
-  if (status === "failed") return "失败"
-  return "结果未知"
-}
 
 const contentText = (content: Content[]): string =>
   content

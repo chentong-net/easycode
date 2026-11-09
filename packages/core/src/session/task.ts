@@ -6,7 +6,6 @@ import type {
   TaskPhase,
   TaskState,
   Todo,
-  VerificationRecord,
 } from "@easycode/schema"
 
 /**
@@ -25,13 +24,10 @@ export const createTaskState = (
   contract: inferTaskContract(input),
   phase: "investigate",
   changedPaths: [],
-  verificationStatus: "unknown",
-  verifications: [],
   toolCalls: 0,
   repeatedToolCalls: 0,
   todoRevision: 0,
   lastTodoUpdateToolCall: 0,
-  mutationRevision: 0,
   budget: {
     softSteps: Math.max(1, Math.floor(checkpointSteps * 0.7)),
     // hardSteps 保留为兼容字段；没有配置硬上限时与当前检查点窗口相同。
@@ -59,7 +55,6 @@ export const inferTaskContract = (input: string): TaskContract => {
 const inferTaskKind = (text: string): TaskKind => {
   const normalized = text.toLowerCase()
   if (/(修复|bug|报错|失败|错误|fix|repair)/i.test(normalized)) return "fix"
-  if (/(验证|测试|检查|typecheck|build|lint|test)/i.test(normalized)) return "verify"
   if (/(调查|分析|定位|查找|研究|investigate|analyze|explore)/i.test(normalized)) return "investigate"
   if (/(解释|说明|回答|是什么|为什么|怎么|how|what|why)/i.test(normalized)) return "answer"
   return "implement"
@@ -71,12 +66,10 @@ const acceptanceFor = (kind: TaskKind): string[] => {
       return ["直接回答用户问题，并说明仍存在的不确定信息。"]
     case "investigate":
       return ["给出有代码或工具结果支撑的调查结论。"]
-    case "verify":
-      return ["执行相关验证并明确说明通过、失败或无法验证。"]
     case "fix":
-      return ["定位问题并完成必要修改。", "在修改后执行相关验证。"]
+      return ["定位问题并完成必要修改。"]
     case "implement":
-      return ["完成用户要求的功能。", "在修改后执行项目可用的验证。"]
+      return ["完成用户要求的功能。"]
   }
 }
 
@@ -114,16 +107,6 @@ export const resumeTask = (task: TaskState): TaskState => ({
 export const moveTaskPhase = (task: TaskState, phase: TaskPhase): TaskState =>
   task.phase === phase ? task : { ...task, phase }
 
-export const recordVerification = (task: TaskState, verification: VerificationRecord): TaskState => {
-  const verifications = [...task.verifications, verification].slice(-20)
-  return {
-    ...task,
-    phase: verification.status === "failed" ? "verify" : "finalize",
-    verificationStatus: verification.status,
-    verifications,
-  }
-}
-
 export const renderTaskState = (task: TaskState, todos: Todo[] = []): string => {
   const lines = [
     "<task-state>",
@@ -142,18 +125,8 @@ export const renderTaskState = (task: TaskState, todos: Todo[] = []): string => 
         })
       : ["- 无"]),
     `修改文件：${task.changedPaths.length > 0 ? task.changedPaths.join("、") : "无"}`,
-    `验证状态：${task.verificationStatus}`,
     `步骤窗口：${task.budget.usedSteps}/${task.budget.checkpointSteps}（累计 ${task.budget.totalSteps}，软上限 ${task.budget.softSteps}）`,
   ]
-
-  if (task.verifications.length > 0) {
-    lines.push("最近验证：")
-    for (const verification of task.verifications.slice(-4)) {
-      lines.push(
-        `- ${verification.status}: ${verification.summary}${verification.command ? `（${verification.command}）` : ""}`,
-      )
-    }
-  }
 
   if (task.lastObservation) lines.push(`最近观察：${task.lastObservation}`)
   if (task.repeatedToolCalls > 0) {
@@ -165,9 +138,6 @@ export const renderTaskState = (task: TaskState, todos: Todo[] = []): string => 
     todos.some((todo) => todo.status !== "completed")
   ) {
     lines.push("待办更新提醒：已完成的工作请立即标为 completed，并把下一项标为 in_progress。")
-  }
-  if (task.verificationStatus === "stale") {
-    lines.push("代码已经修改但验证尚未完成。结束任务前应执行相关验证，或明确说明无法验证的原因。")
   }
   if (task.outcome) lines.push(`任务结果：${task.outcome.status}，${task.outcome.summary}`)
   lines.push("</task-state>")
@@ -189,11 +159,9 @@ export const finishTask = (
     completed: [
       ...(input.status === "success" ? ["完成用户请求"] : []),
       ...(task.changedPaths.length > 0 ? [`修改 ${task.changedPaths.length} 个文件`] : []),
-      ...(task.verifications.some((item) => item.status === "passed") ? ["完成相关验证"] : []),
     ],
     remaining: input.remaining ?? [],
     changedPaths: [...task.changedPaths],
-    verifications: [...task.verifications],
     timestamp: input.timestamp,
   }
   return {
@@ -211,10 +179,8 @@ export const taskMemorySummary = (task: TaskState | undefined, todos: Todo[] = [
     `目标：${task.contract.goal}`,
     `阶段：${task.phase}`,
     `修改文件：${task.changedPaths.join("、") || "无"}`,
-    `验证状态：${task.verificationStatus}`,
     `待办：${completedTodos}/${todos.length}${currentTodo ? `，进行中：${currentTodo.content}` : ""}`,
     `步骤窗口：${task.budget.usedSteps}/${task.budget.checkpointSteps}（累计 ${task.budget.totalSteps}）`,
-    ...task.verifications.slice(-3).map((item) => `验证：${item.status} ${item.summary}`),
     ...(task.lastObservation ? [`最近观察：${task.lastObservation}`] : []),
   ].join("\n")
 }

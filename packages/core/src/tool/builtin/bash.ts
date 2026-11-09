@@ -170,7 +170,6 @@ export const bashTool = defineTool({
 
     const failed = outcome.error !== undefined || timedOut || outcome.code !== 0
     const failureKind = outcome.error ? "internal" : timedOut ? "timeout" : "command_failed"
-    const verification = inferVerification(input.command, failed)
 
     return {
       ...(failed
@@ -195,22 +194,9 @@ export const bashTool = defineTool({
       metadata: {
         effect: "command",
         ...(failed ? { failureKind } : {}),
-        ...(verification ? { verification } : {}),
       },
     }
   },
 })
-
-const VERIFICATION_COMMAND =
-  /(^|\s)(npm|pnpm|yarn|bun)\s+(run\s+)?(test|typecheck|build|lint|check)(\s|$)|(^|\s)(vitest|jest|pytest|tsc|go\s+test|cargo\s+test|swift\s+test)(\s|$)/i
-
-const inferVerification = (command: string, failed: boolean) =>
-  VERIFICATION_COMMAND.test(command)
-    ? {
-        status: failed ? ("failed" as const) : ("passed" as const),
-        command,
-        summary: failed ? "验证命令执行失败" : "验证命令执行成功",
-      }
-    : undefined
 
 export type { Input }

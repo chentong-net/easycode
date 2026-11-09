@@ -573,7 +573,7 @@ const delay = (ms: number, signal: AbortSignal | undefined): Promise<void> =>
 
 /**
  * 模型摘要不可用时仍生成可继续工作的 checkpoint（检查点）。它可能损失过程细节，但会保留
- * 任务契约、最近用户请求、修改文件、失败和验证状态。
+ * 任务契约、最近用户请求、修改文件、失败和待办状态。
  */
 const buildFallbackSummary = (
   task: TaskState | undefined,
@@ -593,7 +593,6 @@ const buildFallbackSummary = (
         )
       : [],
   )
-  const verifications = task?.verifications.slice(-5) ?? []
   const lines = [
     "## 目标",
     task?.contract.goal || users.at(-1) || "无",
@@ -616,15 +615,12 @@ const buildFallbackSummary = (
     "",
     "## 下一步",
     "- 根据最近的用户请求继续工作。",
-    "- 若已经修改代码，先执行相关验证。",
     "",
     "## 涉及的文件",
     ...(task?.changedPaths.length ? task.changedPaths.map((path) => `- ${path}`) : ["- 无"]),
     "",
     "## 关键上下文",
-    ...(verifications.length
-      ? verifications.map((item) => `- 验证 ${item.status}：${item.summary}`)
-      : [`- 验证状态：${task?.verificationStatus ?? "unknown"}`]),
+    task?.lastObservation ? `- ${task.lastObservation}` : "- 无",
     "",
     "## 任务状态",
     taskMemorySummary(task),
@@ -754,7 +750,7 @@ const SUMMARY_SYSTEM_PROMPT = `你是一个 Coding Agent 的工作记忆压缩�
 要求：
 - 只保留后续工作必需的信息，每条尽量使用单行短句。
 - 保留原始目标、仍然有效的约束、已做出的决定、已完成和进行中的工作。
-- 保留精确的文件路径、符号、命令、错误串和验证结果。
+- 保留精确的文件路径、符号、命令和错误串。
 - 记录已经排除的方案和失败指纹，避免后续重复尝试。
 - 丢弃寒暄、重复读取、已经作废的过程和模型推理。
 - 摘要会被直接当作已发生的事实使用，不要写「根据对话」这类元描述。

@@ -67,7 +67,7 @@ export interface ToolResult {
   content: Content[]
   /** 失败时给模型和用户看的说明 */
   error?: string
-  /** 副作用、修改路径和验证证据 */
+  /** 副作用和修改路径 */
   metadata?: ToolMetadata
 }
 

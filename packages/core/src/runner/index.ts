@@ -28,7 +28,6 @@ import {
   createTaskState,
   finishTask,
   moveTaskPhase,
-  recordVerification,
   resumeTask,
 } from "../session/task.js"
 import type { EventHub } from "../events.js"
@@ -761,31 +760,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       usage,
     })
 
-    const task = handle.state.task
-    const needsVerification =
-      !aborted &&
-      !params.isLastStep &&
-      !needsClarification &&
-      task !== undefined &&
-      task.verificationStatus === "stale" &&
-      task.changedPaths.length > 0 &&
-      task.verificationNudgedRevision !== task.mutationRevision
-
     if (needsClarification || needsBlocked) needsContinuation = false
-
-    if (needsVerification && task) {
-      await appendTask(
-        handle,
-        moveTaskPhase(
-          {
-            ...task,
-            verificationNudgedRevision: task.mutationRevision,
-          },
-          "verify",
-        ),
-      )
-      needsContinuation = true
-    }
 
     const todoTask = handle.state.task
     const todos = handle.state.session.todos
@@ -1017,35 +992,20 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         ? "execute"
         : input.name === "todowrite"
           ? "plan"
-          : metadata?.verification
-            ? metadata.verification.status === "failed"
-              ? "verify"
-              : "finalize"
-            : task.phase
-    let next: TaskState = {
+          : task.phase
+    const next: TaskState = {
       ...task,
       changedPaths,
-      verificationStatus: mutation ? "stale" : task.verificationStatus,
       phase,
       toolCalls,
       repeatedToolCalls: repeated,
       todoRevision,
       lastTodoUpdateToolCall: todoChanged ? toolCalls : task.lastTodoUpdateToolCall,
       ...(todoChanged ? { todoReminderRevision: undefined } : {}),
-      mutationRevision: mutation ? task.mutationRevision + 1 : task.mutationRevision,
       lastToolSignature: signature,
       lastObservation: observation,
     }
 
-    if (metadata?.verification) {
-      next = recordVerification(next, {
-        status: metadata.verification.status,
-        command: metadata.verification.command,
-        summary: metadata.verification.summary,
-        callID: input.callID,
-        timestamp: Date.now(),
-      })
-    }
     await appendTask(handle, next)
   }
 
@@ -1228,12 +1188,6 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     } else if (task.budget.exhausted) {
       status = "partial"
       remaining.push("Agent 已达到步数上限，剩余工作未继续执行。")
-    }
-    else if (task.verificationStatus === "stale" || task.verificationStatus === "failed") {
-      status = "partial"
-      remaining.push(
-        task.verificationStatus === "failed" ? "相关验证仍然失败。" : "修改尚未经过验证。",
-      )
     }
 
     const openTodoCount = handle.state.session.todos.filter((todo) => todo.status !== "completed").length
@@ -1423,27 +1377,27 @@ const MAX_STEPS_PROMPT = `当前任务已经达到步数上限。工具已经禁
 
 最终回复必须明确包含：
 1. 已达到当前 Agent 的步数上限。
-2. 已经完成的工作和验证结果。
-3. 尚未完成、存在风险或无法验证的内容。
+2. 已经完成的工作和结果。
+3. 尚未完成或存在风险的内容。
 4. 用户下一步可以采取的行动。
 
-不要宣称未执行或未验证的工作已经完成。`
+不要宣称未执行的工作已经完成。`
 
 const CHECKPOINT_STOP_PROMPT = `用户已经选择停止继续执行。工具已经禁用，请根据当前任务状态输出文本总结。
 
 最终回复必须明确包含：
-1. 已经完成的工作和验证结果。
-2. 尚未完成、存在风险或无法验证的内容。
+1. 已经完成的工作和结果。
+2. 尚未完成或存在风险的内容。
 3. 用户下一步可以采取的行动。
 
-不要宣称未执行或未验证的工作已经完成。`
+不要宣称未执行的工作已经完成。`
 
 const CHECKPOINT_CONTINUE_LABEL = "继续执行（推荐）"
 const CHECKPOINT_STOP_LABEL = "停止并总结"
 
 const SOFT_STEPS_PROMPT = `任务已经接近步数软上限。请立即评估当前进度：
 - 优先完成关键步骤，不要继续无目的的重复读取。
-- 如果已经收集足够信息，进入验证和收尾。
+- 如果已经收集足够信息，进入收尾。
 - 如仍需要较多工作，请精简计划并保留最关键任务。
 - 不得把尚未执行的工作描述为已经完成。`
 

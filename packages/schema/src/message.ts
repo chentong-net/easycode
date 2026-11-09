@@ -45,7 +45,7 @@ export const ToolState = z.discriminatedUnion("status", [
     content: z.array(Content),
     /** 因超出截断阈值而落盘的完整输出文件路径 */
     outputPaths: z.array(z.string()),
-    /** 副作用、修改文件和验证结果等结构化语义 */
+    /** 副作用和修改文件等结构化语义 */
     metadata: ToolMetadata.optional(),
   }),
   z.object({

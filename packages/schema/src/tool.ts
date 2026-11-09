@@ -1,7 +1,5 @@
 import { z } from "zod"
 
-import { VerificationResult } from "./task.js"
-
 export const ToolEffect = z.enum(["read", "mutation", "command", "state"])
 
 export type ToolEffect = z.infer<typeof ToolEffect>
@@ -19,14 +17,6 @@ export const ToolFailureKind = z.enum([
 
 export type ToolFailureKind = z.infer<typeof ToolFailureKind>
 
-export const ToolVerification = z.object({
-  status: VerificationResult,
-  command: z.string().optional(),
-  summary: z.string(),
-})
-
-export type ToolVerification = z.infer<typeof ToolVerification>
-
 /**
  * 工具结果的通用语义。工具自身只声明发生了什么，Runner 根据这些字段推进任务状态。
  */
@@ -35,7 +25,6 @@ export const ToolMetadata = z.object({
   failureKind: ToolFailureKind.optional(),
   retryable: z.boolean().optional(),
   changedPaths: z.array(z.string()).optional(),
-  verification: ToolVerification.optional(),
   needsInput: z.boolean().optional(),
 })
 

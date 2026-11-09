@@ -784,18 +784,8 @@ pre {
   font-weight: 600;
 }
 
-.task-verification-passed,
 .task-outcome {
   color: var(--success);
-}
-
-.task-verification-stale,
-.task-verification-unknown {
-  color: var(--warn);
-}
-
-.task-verification-failed {
-  color: var(--danger);
 }
 
 .task-live {
@@ -829,7 +819,6 @@ pre {
   white-space: nowrap;
 }
 
-.task-verification-summary,
 .task-remaining {
   margin: 0;
   color: var(--text-dim);
