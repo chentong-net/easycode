@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
 import { summarizeToolInput } from "./format"
+import { cachedImagePreview } from "./image-preview-cache"
 
 const ICON_STROKE = 1.8
 const REMARK_PLUGINS = [remarkGfm]
@@ -110,8 +111,13 @@ const AssistantParts = ({ message }: { message: Extract<Message, { role: "assist
   </>
 )
 
-const UserParts = ({ message }: { message: Extract<Message, { role: "user" }> }) =>
-  message.content.map((part, index) => {
+const UserParts = ({ message }: { message: Extract<Message, { role: "user" }> }) => {
+  const ordered = [
+    ...message.content.filter((part) => !isUserText(part)),
+    ...message.content.filter(isUserText),
+  ]
+
+  return ordered.map((part, index) => {
     if (part.type === "text" && typeof part.text === "string") {
       return (
         <div key={`text-${index}`} className="plain-text">
@@ -119,7 +125,7 @@ const UserParts = ({ message }: { message: Extract<Message, { role: "user" }> })
         </div>
       )
     }
-    const url = dataImageURL(part)
+    const url = dataImageURL(part) ?? cachedImagePreview(part)
     if (url !== undefined) {
       return <img key={`image-${index}`} className="message-image" src={url} alt="用户上传的图片" />
     }
@@ -136,6 +142,10 @@ const UserParts = ({ message }: { message: Extract<Message, { role: "user" }> })
       </div>
     )
   })
+}
+
+const isUserText = (part: JsonObject): boolean =>
+  part.type === "text" && typeof part.text === "string"
 
 const dataImageURL = (part: JsonObject): string | undefined => {
   if (part.type !== "image_url" || typeof part.image_url !== "object" || part.image_url === null) return undefined

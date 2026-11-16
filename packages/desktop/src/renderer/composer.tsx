@@ -11,6 +11,7 @@ import {
 
 import { saveClipboardImage, selectImages } from "./bridge"
 import { describeError } from "./format"
+import { cacheImagePreview } from "./image-preview-cache"
 
 const ICON_STROKE = 1.8
 const MAX_INPUT_HEIGHT = 180
@@ -81,7 +82,10 @@ export const Composer = ({
     uploads.current.set(item.id, controller)
     try {
       const content = await onPrepareImage(item.path, controller.signal)
-      if (!controller.signal.aborted) updateImage(item.id, { phase: "ready", content, error: undefined })
+      if (!controller.signal.aborted) {
+        cacheImagePreview(content, item.preview)
+        updateImage(item.id, { phase: "ready", content, error: undefined })
+      }
     } catch (cause) {
       if (!controller.signal.aborted) {
         updateImage(item.id, { phase: "error", content: undefined, error: describeError(cause) })
