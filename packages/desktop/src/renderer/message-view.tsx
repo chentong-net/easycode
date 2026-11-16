@@ -111,24 +111,6 @@ const AssistantParts = ({ message }: { message: Extract<Message, { role: "assist
   </>
 )
 
-const UserParts = ({ message }: { message: Extract<Message, { role: "user" }> }) => {
-  const ordered = [
-    ...message.content.filter((part) => !isUserText(part)),
-    ...message.content.filter(isUserText),
-  ]
-
-  return ordered.map((part, index) => {
-    if (part.type === "text" && typeof part.text === "string") {
-      return (
-        <div key={`text-${index}`} className="plain-text">
-          {part.text}
-        </div>
-      )
-    }
-    return <UserImage key={`image-${index}`} content={part} />
-  })
-}
-
 const isUserText = (part: JsonObject): boolean =>
   part.type === "text" && typeof part.text === "string"
 
@@ -232,9 +214,26 @@ const messageText = (message: Message): string => {
 
 export const MessageView = ({ message }: { message: Message }) => {
   if (message.role === "user") {
+    const images = message.content.filter((part) => !isUserText(part))
+    const texts = message.content.filter(isUserText)
     return (
-      <article className="message message-user" data-message-id={message.id}>
-        <UserParts message={message} />
+      <article className="message message-user-group" data-message-id={message.id}>
+        {images.length > 0 && (
+          <div className="message-user-images">
+            {images.map((part, index) => (
+              <UserImage key={`image-${index}`} content={part} />
+            ))}
+          </div>
+        )}
+        {texts.length > 0 && (
+          <div className="message-user-bubble">
+            {texts.map((part, index) => (
+              <div key={`text-${index}`} className="plain-text">
+                {part.text as string}
+              </div>
+            ))}
+          </div>
+        )}
       </article>
     )
   }
