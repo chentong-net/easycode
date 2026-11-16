@@ -42,10 +42,21 @@ export const selectDirectory = async (defaultPath?: string): Promise<string | un
   return bridge.selectDirectory(defaultPath === undefined ? {} : { defaultPath })
 }
 
-/** 打开系统原生的图片选择框，只返回绝对路径。 */
-export const selectImage = async (defaultPath?: string): Promise<string | undefined> => {
-  if (bridge === undefined) return undefined
-  return bridge.selectImage(defaultPath === undefined ? {} : { defaultPath })
+/** 打开系统原生的多图选择框，返回路径和主进程生成的小尺寸预览。 */
+export const selectImages = async (
+  defaultPath?: string,
+): Promise<Array<{ path: string; preview?: string }>> => {
+  if (bridge === undefined) return []
+  return bridge.selectImages(defaultPath === undefined ? {} : { defaultPath })
+}
+
+/** 把粘贴的图片字节保存成临时文件，Renderer 不直接写本地文件。 */
+export const saveClipboardImage = async (file: File): Promise<{ path: string; preview?: string }> => {
+  if (bridge === undefined) throw new Error("当前环境不支持粘贴图片")
+  return bridge.saveClipboardImage({
+    mime: file.type,
+    data: await file.arrayBuffer(),
+  })
 }
 
 /** 重启桌面应用；浏览器预览模式下不支持。 */

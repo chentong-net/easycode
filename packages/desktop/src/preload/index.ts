@@ -3,9 +3,12 @@ import { contextBridge, ipcRenderer } from "electron"
 import {
   IPC_RESTART_APP,
   IPC_SELECT_DIRECTORY,
-  IPC_SELECT_IMAGE,
+  IPC_SELECT_IMAGES,
+  IPC_SAVE_CLIPBOARD_IMAGE,
+  type ImageSelection,
+  type SaveClipboardImageRequest,
   type SelectDirectoryRequest,
-  type SelectImageRequest,
+  type SelectImagesRequest,
 } from "../shared/ipc"
 
 /**
@@ -72,8 +75,11 @@ contextBridge.exposeInMainWorld(
     selectDirectory: (request?: SelectDirectoryRequest): Promise<string | undefined> =>
       ipcRenderer.invoke(IPC_SELECT_DIRECTORY, request) as Promise<string | undefined>,
 
-    selectImage: (request?: SelectImageRequest): Promise<string | undefined> =>
-      ipcRenderer.invoke(IPC_SELECT_IMAGE, request) as Promise<string | undefined>,
+    selectImages: (request?: SelectImagesRequest): Promise<ImageSelection[]> =>
+      ipcRenderer.invoke(IPC_SELECT_IMAGES, request) as Promise<ImageSelection[]>,
+
+    saveClipboardImage: (request: SaveClipboardImageRequest): Promise<ImageSelection> =>
+      ipcRenderer.invoke(IPC_SAVE_CLIPBOARD_IMAGE, request) as Promise<ImageSelection>,
 
     restartApp: (): Promise<void> => ipcRenderer.invoke(IPC_RESTART_APP) as Promise<void>,
   }),

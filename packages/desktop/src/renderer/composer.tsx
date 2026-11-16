@@ -1,17 +1,34 @@
 import type { JsonObject } from "@easycode/schema"
 import { ArrowUp, Image as ImageIcon, LoaderCircle, Plus, Square, X } from "lucide-react"
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react"
 
-import { selectImage } from "./bridge"
+import { saveClipboardImage, selectImages } from "./bridge"
 import { describeError } from "./format"
 
 const ICON_STROKE = 1.8
 const MAX_INPUT_HEIGHT = 180
+const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"])
 
-type PreparedImage =
-  | { phase: "uploading"; path: string }
-  | { phase: "ready"; path: string; content: JsonObject }
-  | { phase: "error"; path: string; message: string }
+type ImageItem = {
+  id: string
+  path: string
+  preview?: string
+  phase: "uploading" | "ready" | "error"
+  content?: JsonObject
+  error?: string
+}
+
+interface ImageSelection {
+  path: string
+  preview?: string
+}
 
 export const Composer = ({
   running,
@@ -24,14 +41,16 @@ export const Composer = ({
   /** 有必须通过专用卡片回答的问题时暂停普通输入。 */
   inputDisabled?: boolean
   onPrepareImage: (path: string, signal?: AbortSignal) => Promise<JsonObject>
-  onSend: (text: string, imageContent?: JsonObject) => Promise<boolean>
+  onSend: (text: string, imageContents: JsonObject[]) => Promise<boolean>
   onStop: () => Promise<void>
 }) => {
   const [draft, setDraft] = useState("")
-  const [image, setImage] = useState<PreparedImage | undefined>()
+  const [images, setImages] = useState<ImageItem[]>([])
+  const [pasteError, setPasteError] = useState<string | undefined>()
   const [submitting, setSubmitting] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
-  const upload = useRef<AbortController | undefined>(undefined)
+  const uploads = useRef(new Map<string, AbortController>())
+  const imageSequence = useRef(0)
 
   useEffect(() => {
     const element = input.current
@@ -42,48 +61,110 @@ export const Composer = ({
 
   useEffect(
     () => () => {
-      upload.current?.abort()
+      for (const controller of uploads.current.values()) controller.abort()
+      uploads.current.clear()
     },
     [],
   )
 
-  const chooseImage = async (): Promise<void> => {
-    if (submitting || inputDisabled || image?.phase === "uploading" || image?.phase === "ready") return
+  const nextImageID = (): string => {
+    imageSequence.current += 1
+    return `image-${Date.now()}-${imageSequence.current}`
+  }
 
-    const path = await selectImage()
-    if (path === undefined) return
+  const updateImage = (id: string, update: Partial<ImageItem>): void => {
+    setImages((current) => current.map((item) => (item.id === id ? { ...item, ...update } : item)))
+  }
 
-    upload.current?.abort()
+  const prepareImage = async (item: ImageItem): Promise<void> => {
     const controller = new AbortController()
-    upload.current = controller
-    setImage({ phase: "uploading", path })
-
+    uploads.current.set(item.id, controller)
     try {
-      const content = await onPrepareImage(path, controller.signal)
-      if (!controller.signal.aborted) setImage({ phase: "ready", path, content })
+      const content = await onPrepareImage(item.path, controller.signal)
+      if (!controller.signal.aborted) updateImage(item.id, { phase: "ready", content, error: undefined })
     } catch (cause) {
-      if (!controller.signal.aborted) setImage({ phase: "error", path, message: describeError(cause) })
+      if (!controller.signal.aborted) {
+        updateImage(item.id, { phase: "error", content: undefined, error: describeError(cause) })
+      }
+    } finally {
+      uploads.current.delete(item.id)
     }
   }
 
-  const removeImage = (): void => {
-    upload.current?.abort()
-    upload.current = undefined
-    setImage(undefined)
+  const addSelections = (selections: ImageSelection[]): void => {
+    if (selections.length === 0) return
+    const items: ImageItem[] = selections.map((selection) => ({
+      id: nextImageID(),
+      path: selection.path,
+      ...(selection.preview === undefined ? {} : { preview: selection.preview }),
+      phase: "uploading",
+    }))
+    setImages((current) => [...current, ...items])
+    for (const item of items) void prepareImage(item)
+  }
+
+  const chooseImages = async (): Promise<void> => {
+    if (submitting || inputDisabled) return
+    try {
+      addSelections(await selectImages())
+    } catch (cause) {
+      setPasteError(describeError(cause))
+    }
+  }
+
+  const pasteImages = async (files: File[]): Promise<void> => {
+    setPasteError(undefined)
+    const results = await Promise.allSettled(files.map((file) => saveClipboardImage(file)))
+    const selections: ImageSelection[] = []
+    let failed = 0
+    for (const result of results) {
+      if (result.status === "fulfilled") selections.push(result.value)
+      else failed += 1
+    }
+    if (failed > 0) setPasteError(`${failed} 张图片保存失败，请重新复制后再试`)
+    addSelections(selections)
+  }
+
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const fromItems = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file")
+      .flatMap((item) => {
+        const file = item.getAsFile()
+        return file === null ? [] : [file]
+      })
+    const files = fromItems.length > 0 ? fromItems : Array.from(event.clipboardData.files)
+    const imageFiles = files.filter((file) => IMAGE_MIMES.has(file.type))
+    if (imageFiles.length === 0) return
+    event.preventDefault()
+    void pasteImages(imageFiles)
+  }
+
+  const removeImage = (id: string): void => {
+    uploads.current.get(id)?.abort()
+    uploads.current.delete(id)
+    setImages((current) => current.filter((item) => item.id !== id))
   }
 
   const submit = async (event?: FormEvent): Promise<void> => {
     event?.preventDefault()
     const text = draft.trim()
-    const imageContent = image?.phase === "ready" ? image.content : undefined
-    if ((text.length === 0 && imageContent === undefined) || submitting || image?.phase === "uploading") return
+    const imageContents = images.flatMap((item) => (item.phase === "ready" && item.content ? [item.content] : []))
+    const allImagesReady = images.every((item) => item.phase === "ready")
+    if (
+      (text.length === 0 && imageContents.length === 0) ||
+      !allImagesReady ||
+      submitting
+    ) {
+      return
+    }
 
     setSubmitting(true)
     try {
-      const sent = await onSend(text, imageContent)
+      const sent = await onSend(text, imageContents)
       if (sent) {
         setDraft("")
-        setImage(undefined)
+        setImages([])
+        setPasteError(undefined)
       }
     } finally {
       setSubmitting(false)
@@ -97,21 +178,62 @@ export const Composer = ({
     void submit(event)
   }
 
-  const uploading = image?.phase === "uploading"
-  const hasReadyImage = image?.phase === "ready"
+  const uploading = images.some((item) => item.phase === "uploading")
+  const allImagesReady = images.every((item) => item.phase === "ready")
+  const hasReadyImage = images.some((item) => item.phase === "ready")
   const canSend =
     (draft.trim().length > 0 || hasReadyImage) &&
-    !submitting &&
+    allImagesReady &&
     !uploading &&
+    !submitting &&
     !inputDisabled
 
   return (
     <form className="composer" onSubmit={(event) => void submit(event)}>
+      {(images.length > 0 || pasteError !== undefined) && (
+        <div className="composer-attachments" aria-live="polite">
+          {images.map((item) => (
+            <div
+              className={`composer-image composer-image-${item.phase}`}
+              key={item.id}
+              title={item.error ?? item.path}
+            >
+              {item.preview === undefined ? (
+                <ImageIcon size={22} strokeWidth={ICON_STROKE} aria-hidden />
+              ) : (
+                <img src={item.preview} alt="" draggable={false} />
+              )}
+              {item.phase === "uploading" && (
+                <span className="composer-image-overlay" aria-label="图片正在处理">
+                  <LoaderCircle size={17} className="settings-test-spinner" />
+                </span>
+              )}
+              {item.phase === "error" && (
+                <span className="composer-image-overlay composer-image-error" aria-label="图片处理失败">
+                  失败
+                </span>
+              )}
+              <button
+                type="button"
+                className="composer-image-remove"
+                onClick={() => removeImage(item.id)}
+                title="移除图片"
+                aria-label="移除图片"
+              >
+                <X size={12} strokeWidth={2.2} />
+              </button>
+            </div>
+          ))}
+          {pasteError !== undefined && <div className="composer-paste-error">{pasteError}</div>}
+        </div>
+      )}
+
       <textarea
         ref={input}
         className="composer-input"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
+        onPaste={onPaste}
         onKeyDown={onKeyDown}
         placeholder={inputDisabled ? "请先回答上方问题" : "发消息…（Enter 发送，Shift+Enter 换行）"}
         rows={1}
@@ -119,43 +241,13 @@ export const Composer = ({
         disabled={submitting || inputDisabled}
       />
 
-      {image !== undefined && (
-        <div className={`composer-attachment composer-attachment-${image.phase}`}>
-          <ImageIcon size={15} strokeWidth={ICON_STROKE} aria-hidden />
-          <span className="composer-attachment-name" title={image.path}>
-            {fileName(image.path)}
-          </span>
-          {image.phase === "uploading" && (
-            <span className="composer-attachment-status">
-              <LoaderCircle size={13} className="settings-test-spinner" />
-              正在处理
-            </span>
-          )}
-          {image.phase === "ready" && <span className="composer-attachment-status">已就绪</span>}
-          {image.phase === "error" && (
-            <span className="composer-attachment-error" title={image.message}>
-              处理失败：{image.message}
-            </span>
-          )}
-          <button
-            type="button"
-            className="composer-attachment-remove"
-            onClick={removeImage}
-            title="移除图片"
-            aria-label="移除图片"
-          >
-            <X size={13} strokeWidth={2} />
-          </button>
-        </div>
-      )}
-
       <div className="composer-toolbar">
         <button
           type="button"
           className="composer-plus"
-          onClick={() => void chooseImage()}
-          disabled={submitting || inputDisabled || uploading || hasReadyImage}
-          title={uploading ? "图片正在处理" : hasReadyImage ? "每条消息最多一张图片" : "添加图片"}
+          onClick={() => void chooseImages()}
+          disabled={submitting || inputDisabled}
+          title="添加图片"
         >
           <Plus size={18} strokeWidth={ICON_STROKE} />
         </button>
@@ -186,5 +278,3 @@ export const Composer = ({
     </form>
   )
 }
-
-const fileName = (path: string): string => path.split(/[\\/]/).at(-1) || path

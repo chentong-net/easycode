@@ -89,7 +89,7 @@ export interface EasyCodeStore {
   /** 准备本地图片，返回可直接加入 prompt content 的 JSON。 */
   prepareImage(path: string, signal?: AbortSignal): Promise<JsonObject>
   /** 发送消息；返回是否已被 Core 接纳。 */
-  send(text: string, imageContent?: JsonObject): Promise<boolean>
+  send(text: string, imageContents: JsonObject[]): Promise<boolean>
   interrupt(): Promise<void>
   replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
   replyQuestion(requestID: string, answers: QuestionAnswer[]): Promise<void>
@@ -539,7 +539,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   )
 
   const send = useCallback(
-    async (text: string, imageContent?: JsonObject): Promise<boolean> => {
+    async (text: string, imageContents: JsonObject[]): Promise<boolean> => {
       if (workspace === undefined) return false
       try {
         let sessionID = activeSessionID
@@ -553,7 +553,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
         }
         await client.sessions.prompt(sessionID, {
           text,
-          content: imageContent === undefined ? [] : [imageContent],
+          content: imageContents,
         })
         return true
       } catch (cause) {

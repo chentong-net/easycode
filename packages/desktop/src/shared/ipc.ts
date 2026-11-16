@@ -15,7 +15,8 @@
  */
 
 export const IPC_SELECT_DIRECTORY = "easycode:select-directory"
-export const IPC_SELECT_IMAGE = "easycode:select-image"
+export const IPC_SELECT_IMAGES = "easycode:select-images"
+export const IPC_SAVE_CLIPBOARD_IMAGE = "easycode:save-clipboard-image"
 export const IPC_RESTART_APP = "easycode:restart-app"
 
 export interface SelectDirectoryRequest {
@@ -30,10 +31,19 @@ export interface SelectDirectoryRequest {
 /** 用户确认后返回选中的绝对路径；取消则返回 undefined。 */
 export type SelectDirectoryResult = string | undefined
 
-export interface SelectImageRequest {
+export interface SelectImagesRequest {
   /** 弹窗打开时的起始目录，支持以 `~` 开头。 */
   defaultPath?: string
 }
 
-/** 用户确认后返回图片绝对路径；取消则返回 undefined。 */
-export type SelectImageResult = string | undefined
+/** 可供界面展示和 Core 读取的图片选择结果。 */
+export interface ImageSelection {
+  path: string
+  /** 主进程生成的小尺寸预览，失败时为空。 */
+  preview?: string
+}
+
+export interface SaveClipboardImageRequest {
+  mime: string
+  data: ArrayBuffer
+}

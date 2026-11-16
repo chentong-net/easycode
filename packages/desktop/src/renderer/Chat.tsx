@@ -373,9 +373,9 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
           <Composer
             running={store.running}
             onPrepareImage={store.prepareImage}
-            onSend={async (text, imageContent) => {
+            onSend={async (text, imageContents) => {
               stickToBottom.current = true
-              return store.send(text, imageContent)
+              return store.send(text, imageContents)
             }}
             onStop={store.interrupt}
           />

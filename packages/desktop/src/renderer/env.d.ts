@@ -16,8 +16,13 @@ export interface EasyCodeBridge {
   homeDirectory: string
   /** 打开系统原生的目录选择框；用户取消时返回 undefined */
   selectDirectory(request?: { defaultPath?: string }): Promise<string | undefined>
-  /** 打开系统原生的图片选择框；用户取消时返回 undefined */
-  selectImage(request?: { defaultPath?: string }): Promise<string | undefined>
+  /** 打开系统原生的多图选择框；用户取消时返回空数组 */
+  selectImages(request?: { defaultPath?: string }): Promise<Array<{ path: string; preview?: string }>>
+  /** 将剪贴板图片保存到临时文件，保持 Core 侧仍只接收路径 */
+  saveClipboardImage(request: {
+    mime: string
+    data: ArrayBuffer
+  }): Promise<{ path: string; preview?: string }>
   /** 重启桌面应用，让保存后的运行配置重新加载 */
   restartApp(): Promise<void>
 }
