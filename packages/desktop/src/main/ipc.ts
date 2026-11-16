@@ -4,7 +4,13 @@ import { dirname, resolve } from "node:path"
 
 import { app, dialog, ipcMain } from "electron"
 
-import { IPC_RESTART_APP, IPC_SELECT_DIRECTORY, type SelectDirectoryRequest } from "../shared/ipc"
+import {
+  IPC_RESTART_APP,
+  IPC_SELECT_DIRECTORY,
+  IPC_SELECT_IMAGE,
+  type SelectDirectoryRequest,
+  type SelectImageRequest,
+} from "../shared/ipc"
 import { log } from "./log"
 
 /**
@@ -35,6 +41,28 @@ export const registerIpcHandlers = (): void => {
 
     const selected = result.filePaths[0]
     log.info("用户选择了工作目录", { directory: selected })
+    return selected
+  })
+
+  ipcMain.handle(IPC_SELECT_IMAGE, async (_event, request?: SelectImageRequest): Promise<string | undefined> => {
+    const defaultPath = resolveDefaultPath(request?.defaultPath)
+    log.debug("打开图片选择弹窗", { defaultPath })
+
+    const result = await dialog.showOpenDialog({
+      title: "选择图片",
+      buttonLabel: "选择",
+      properties: ["openFile"],
+      filters: [{ name: "图片", extensions: ["jpg", "jpeg", "png", "gif", "webp"] }],
+      ...(defaultPath === undefined ? {} : { defaultPath }),
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      log.debug("用户取消了图片选择")
+      return undefined
+    }
+
+    const selected = result.filePaths[0]
+    log.info("用户选择了图片", { file: selected })
     return selected
   })
 

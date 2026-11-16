@@ -1,4 +1,4 @@
-import type { Content, Message, Part } from "@easycode/schema"
+import type { Content, JsonObject, Message, Part } from "@easycode/schema"
 import { Copy, Ellipsis } from "lucide-react"
 import { useState, type ComponentProps } from "react"
 import ReactMarkdown from "react-markdown"
@@ -111,17 +111,37 @@ const AssistantParts = ({ message }: { message: Extract<Message, { role: "assist
 )
 
 const UserParts = ({ message }: { message: Extract<Message, { role: "user" }> }) =>
-  message.parts.map((part, index) => {
-    if (part.type === "text") {
+  message.content.map((part, index) => {
+    if (part.type === "text" && typeof part.text === "string") {
       return (
         <div key={`text-${index}`} className="plain-text">
           {part.text}
         </div>
       )
     }
-    if (part.type === "file") return <Attachment key={`file-${index}`} part={part} />
-    return null
+    const url = dataImageURL(part)
+    if (url !== undefined) {
+      return <img key={`image-${index}`} className="message-image" src={url} alt="用户上传的图片" />
+    }
+    if (part.type === "file") {
+      return (
+        <div key={`file-${index}`} className="message-file">
+          附件：图片（DeepSeek Files）
+        </div>
+      )
+    }
+    return (
+      <div key={`content-${index}`} className="message-file">
+        附件：图片
+      </div>
+    )
   })
+
+const dataImageURL = (part: JsonObject): string | undefined => {
+  if (part.type !== "image_url" || typeof part.image_url !== "object" || part.image_url === null) return undefined
+  if (!("url" in part.image_url) || typeof part.image_url.url !== "string") return undefined
+  return part.image_url.url.startsWith("data:image/") ? part.image_url.url : undefined
+}
 
 const CopyButton = ({ text }: { text: string }) => {
   const [copied, setCopied] = useState(false)
@@ -167,7 +187,9 @@ const messageText = (message: Message): string => {
     ].join("\n\n")
   }
   if (message.role === "user") {
-    return message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n\n")
+    return message.content
+      .flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
+      .join("\n\n")
   }
   return ""
 }

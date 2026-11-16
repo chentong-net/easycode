@@ -868,6 +868,15 @@ pre {
   font-size: 12.5px;
 }
 
+.message-image {
+  display: block;
+  max-width: min(420px, 100%);
+  max-height: 320px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  object-fit: contain;
+}
+
 .message-error {
   color: var(--danger);
   font-size: 13px;
@@ -1399,6 +1408,66 @@ pre {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.composer-attachment {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-dim);
+  background: var(--bg-hover);
+  font-size: 12px;
+}
+
+.composer-attachment-uploading {
+  color: var(--text-faint);
+}
+
+.composer-attachment-error {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--danger);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.composer-attachment-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+}
+
+.composer-attachment-remove:hover {
+  color: var(--text);
+  background: var(--bg);
 }
 
 .composer-actions {

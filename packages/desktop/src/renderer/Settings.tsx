@@ -4,11 +4,13 @@ import {
   RuntimeConfigUpdateRequest,
   type WebProvider,
 } from "@easycode/protocol"
+import type { ImagePlatform } from "@easycode/schema"
 import { AlertCircle, Check, LoaderCircle, RotateCw, X } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
 
 import { hasHost, restartApp } from "./bridge"
 import { describeError } from "./format"
+import { readImagePlatform, saveImagePlatform } from "./image-platform"
 
 interface ConfigForm {
   baseUrl: string
@@ -24,6 +26,7 @@ interface ConfigForm {
   webFetchApiKey: string
   webTimeoutMs: string
   webMaxResponseBytes: string
+  imagePlatform: ImagePlatform
   logLevel: RuntimeConfigResponse["logLevel"]
 }
 
@@ -59,6 +62,7 @@ const EMPTY_FORM: ConfigForm = {
   webFetchApiKey: "",
   webTimeoutMs: "30000",
   webMaxResponseBytes: "8388608",
+  imagePlatform: "base64",
   logLevel: "info",
 }
 
@@ -103,7 +107,7 @@ export const SettingsDialog = ({
         const next = await client.config.get(controller.signal)
         if (controller.signal.aborted) return
         setConfig(next)
-        setForm(toForm(next))
+        setForm(toForm(next, readImagePlatform()))
       } catch (cause) {
         if (!controller.signal.aborted) setLoadError(describeError(cause))
       } finally {
@@ -193,8 +197,9 @@ export const SettingsDialog = ({
     setSaveFeedback(undefined)
     try {
       const next = await client.config.update(input)
+      saveImagePlatform(form.imagePlatform)
       setConfig(next)
-      setForm(toForm(next))
+      setForm(toForm(next, form.imagePlatform))
       setClear(EMPTY_CLEAR)
       setSaved(true)
       setSaveFeedback({ tone: "success", message: "保存成功" })
@@ -290,7 +295,7 @@ export const SettingsDialog = ({
                 {loadError !== undefined && <div className="settings-load-error">无法读取配置：{loadError}</div>}
                 {saved && (
                   <div className="settings-saved">
-                    <span>配置已保存。模型和联网工具需要重启应用后生效。</span>
+                    <span>配置已保存。模型和联网工具需要重启应用后生效；图片方式立即生效。</span>
                     {hasHost && (
                       <button type="button" className="btn btn-small" onClick={() => void restart()} disabled={restarting}>
                         <RotateCw size={13} />
@@ -341,7 +346,7 @@ export const SettingsDialog = ({
                       <input
                         value={form.model}
                         onChange={(event) => setField("model", event.target.value)}
-                        placeholder="例如 gpt-4o 或 deepseek-chat"
+                        placeholder="例如 gpt-4o 或 deepseek-flash"
                         spellCheck={false}
                       />
                     </Field>
@@ -417,6 +422,33 @@ export const SettingsDialog = ({
                       {connectionTest.message}
                     </p>
                   )}
+                </section>
+
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>图片输入</h3>
+                    <span>选择本地图片时使用的处理方式</span>
+                  </div>
+                  <div className="settings-grid">
+                    <Field
+                      label="图片发送方式"
+                      hint="Base64 最大 10 MiB；DeepSeek Files 需要 deepseek-flash 和 DeepSeek 官方接口。"
+                      wide
+                    >
+                      <select
+                        value={form.imagePlatform}
+                        onChange={(event) =>
+                          setField("imagePlatform", event.target.value as ImagePlatform)
+                        }
+                      >
+                        <option value="base64">Base64（默认）</option>
+                        <option value="deepseek-files">DeepSeek Files API</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <p className="settings-note">
+                    图片会先准备完成；准备成功前不能发送消息。该选择保存于本机界面，不需要重启。
+                  </p>
                 </section>
 
                 <section className="settings-section">
@@ -618,7 +650,7 @@ const SecretField = ({
   </label>
 )
 
-const toForm = (config: RuntimeConfigResponse): ConfigForm => ({
+const toForm = (config: RuntimeConfigResponse, imagePlatform: ImagePlatform): ConfigForm => ({
   baseUrl: config.baseUrl,
   model: config.model,
   contextWindow: String(config.contextWindow),
@@ -632,6 +664,7 @@ const toForm = (config: RuntimeConfigResponse): ConfigForm => ({
   webFetchApiKey: "",
   webTimeoutMs: String(config.webTimeoutMs),
   webMaxResponseBytes: String(config.webMaxResponseBytes),
+  imagePlatform,
   logLevel: config.logLevel,
 })
 

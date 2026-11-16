@@ -2,7 +2,7 @@
  * 预加载脚本注入到 window 上的桥接对象。
  *
  * 这里只声明类型，不做任何运行时代码：真正的注入发生在 preload 里。
- * 除了 `selectDirectory`（系统目录选择框）之外，渲染层与 Core 的交互
+ * 除了系统文件和目录选择之外，渲染层与 Core 的交互
  * 全部通过 HTTP 接口完成。
  */
 export interface EasyCodeBridge {
@@ -16,6 +16,8 @@ export interface EasyCodeBridge {
   homeDirectory: string
   /** 打开系统原生的目录选择框；用户取消时返回 undefined */
   selectDirectory(request?: { defaultPath?: string }): Promise<string | undefined>
+  /** 打开系统原生的图片选择框；用户取消时返回 undefined */
+  selectImage(request?: { defaultPath?: string }): Promise<string | undefined>
   /** 重启桌面应用，让保存后的运行配置重新加载 */
   restartApp(): Promise<void>
 }

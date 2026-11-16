@@ -372,9 +372,10 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
         {store.pendingQuestions.length === 0 && (
           <Composer
             running={store.running}
-            onSend={async (text) => {
+            onPrepareImage={store.prepareImage}
+            onSend={async (text, imageContent) => {
               stickToBottom.current = true
-              await store.send(text)
+              return store.send(text, imageContent)
             }}
             onStop={store.interrupt}
           />
@@ -390,7 +391,12 @@ const NewConversation = ({ store }: { store: EasyCodeStore }) => (
       <h1 className="hero-title">今天想让我做点什么？</h1>
     </div>
     <div className="composer-area">
-      <Composer running={false} onSend={store.send} onStop={store.interrupt} />
+      <Composer
+        running={false}
+        onPrepareImage={store.prepareImage}
+        onSend={store.send}
+        onStop={store.interrupt}
+      />
     </div>
   </section>
 )

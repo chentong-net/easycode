@@ -3,6 +3,7 @@ import type { BulkDeleteSessionsResponse } from "@easycode/protocol"
 import {
   isDurableEvent,
   type Event,
+  type JsonObject,
   type Message,
   type PermissionReply,
   type PermissionRequest,
@@ -14,6 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { describeError } from "./format"
+import { readImagePlatform } from "./image-platform"
 
 /**
  * 界面的会话状态。
@@ -84,7 +86,10 @@ export interface EasyCodeStore {
   deleteSession(sessionID: string): Promise<void>
   /** 批量删除会话，返回逐项结果。 */
   deleteSessions(sessionIDs: string[]): Promise<BulkDeleteSessionsResponse>
-  send(text: string): Promise<void>
+  /** 准备本地图片，返回可直接加入 prompt content 的 JSON。 */
+  prepareImage(path: string, signal?: AbortSignal): Promise<JsonObject>
+  /** 发送消息；返回是否已被 Core 接纳。 */
+  send(text: string, imageContent?: JsonObject): Promise<boolean>
   interrupt(): Promise<void>
   replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
   replyQuestion(requestID: string, answers: QuestionAnswer[]): Promise<void>
@@ -527,9 +532,15 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     [activeSessionID, client.sessions],
   )
 
+  const prepareImage = useCallback(
+    (path: string, signal?: AbortSignal): Promise<JsonObject> =>
+      client.images.prepare({ path, platform: readImagePlatform() }, signal),
+    [client.images],
+  )
+
   const send = useCallback(
-    async (text: string) => {
-      if (workspace === undefined) return
+    async (text: string, imageContent?: JsonObject): Promise<boolean> => {
+      if (workspace === undefined) return false
       try {
         let sessionID = activeSessionID
         if (sessionID === undefined) {
@@ -540,9 +551,14 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           setCurrentSessionID(session.id)
           sessionID = session.id
         }
-        await client.sessions.prompt(sessionID, { text })
+        await client.sessions.prompt(sessionID, {
+          text,
+          content: imageContent === undefined ? [] : [imageContent],
+        })
+        return true
       } catch (cause) {
         setError(describeError(cause))
+        return false
       }
     },
     [activeSessionID, client.sessions, workspace],
@@ -627,6 +643,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     pinSession,
     deleteSession,
     deleteSessions,
+    prepareImage,
     send,
     interrupt,
     replyPermission,

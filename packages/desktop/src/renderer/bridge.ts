@@ -42,6 +42,12 @@ export const selectDirectory = async (defaultPath?: string): Promise<string | un
   return bridge.selectDirectory(defaultPath === undefined ? {} : { defaultPath })
 }
 
+/** 打开系统原生的图片选择框，只返回绝对路径。 */
+export const selectImage = async (defaultPath?: string): Promise<string | undefined> => {
+  if (bridge === undefined) return undefined
+  return bridge.selectImage(defaultPath === undefined ? {} : { defaultPath })
+}
+
 /** 重启桌面应用；浏览器预览模式下不支持。 */
 export const restartApp = async (): Promise<void> => {
   if (bridge === undefined) return
