@@ -35,8 +35,8 @@ import { z, type ZodTypeAny } from "zod"
 import { readJSON, sendError, sendJSON, sendPreflight } from "./http.js"
 import { streamEvents } from "./sse.js"
 
-/** 10 MiB 原图编码成 Base64 后约 13.34 MiB，预留 JSON 结构与少量文本空间。 */
-const MAX_PROMPT_BODY_BYTES = 15 * 1024 * 1024
+/** Base64 图片可能在单条消息中连续发送，prompt 需要比普通 JSON 接口更宽的上限。 */
+const MAX_PROMPT_BODY_BYTES = 64 * 1024 * 1024
 
 /**
  * 路由层：把 HTTP 请求翻译成 Core 的调用，再把结果翻译回 JSON。

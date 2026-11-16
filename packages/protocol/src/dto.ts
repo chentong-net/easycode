@@ -162,8 +162,8 @@ export type ImagePrepareResponse = z.infer<typeof ImagePrepareResponse>
 export const PromptRequest = z
   .object({
     text: z.string(),
-    /** 每个元素都会直接加入用户消息 content；当前最多允许一张图片。 */
-    content: z.array(JsonObjectSchema).max(1, "每条消息最多携带一张图片").default([]),
+    /** 每个元素都会按顺序直接加入用户消息 content。 */
+    content: z.array(JsonObjectSchema).default([]),
     /**
      * 投递方式。缺省为 `steer`（插话）：用户在回合运行中输入的内容
      * 默认应当在下一个安全边界立刻生效，而不是等整轮跑完。
