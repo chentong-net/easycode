@@ -6,6 +6,8 @@ import {
   DeleteWorkspaceResponse,
   Endpoints,
   HealthResponse,
+  ImagePrepareRequest,
+  ImagePrepareResponse,
   MessageListResponse,
   ModelConnectionTestRequest,
   ModelConnectionTestResponse,
@@ -28,6 +30,7 @@ import {
   withAfter,
   type AgentInfo,
   type CreateSessionRequest,
+  type ImagePrepareResponse as ImagePrepareResponseType,
   type PromptRequest,
 } from "@easycode/protocol"
 import {
@@ -92,6 +95,10 @@ export interface EasyCodeClient {
   health(signal?: AbortSignal): Promise<HealthResponse>
   /** 可用的 agent 列表 */
   agents(signal?: AbortSignal): Promise<AgentInfo[]>
+  images: {
+    /** 根据请求指定的平台准备本地图片，返回最终 content JSON。 */
+    prepare(input: ImagePrepareRequest, signal?: AbortSignal): Promise<ImagePrepareResponseType>
+  }
   config: {
     get(signal?: AbortSignal): Promise<RuntimeConfigResponse>
     update(input: RuntimeConfigUpdateRequest, signal?: AbortSignal): Promise<RuntimeConfigResponse>
@@ -153,6 +160,11 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
   return {
     health: (signal) => get(transport, Endpoints.health(), HealthResponse, signal),
     agents: (signal) => get(transport, Endpoints.agents(), AgentListResponse, signal),
+
+    images: {
+      prepare: (input, signal) =>
+        post(transport, Endpoints.prepareImage(), input, ImagePrepareResponse, signal),
+    },
 
     config: {
       get: (signal) => get(transport, Endpoints.config(), RuntimeConfigResponse, signal),

@@ -10,6 +10,7 @@
 export * from "./agent.js"
 export * from "./event.js"
 export * from "./id.js"
+export * from "./image.js"
 export * from "./message.js"
 export * from "./permission.js"
 export * from "./question.js"

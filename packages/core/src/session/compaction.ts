@@ -12,7 +12,12 @@ import {
   type CompactionBackup,
   type SummaryBackupInput,
 } from "./compaction-backup.js"
-import { buildLLMMessages, selectHistoryMessages, estimateRequestTokens } from "./history.js"
+import {
+  buildLLMMessages,
+  estimateRequestTokens,
+  estimateUserContentTokens,
+  selectHistoryMessages,
+} from "./history.js"
 import type { SessionHandle } from "./runtime.js"
 import { taskMemorySummary } from "./task.js"
 
@@ -584,7 +589,9 @@ const buildFallbackSummary = (
   const messages = [...subject, ...tail]
   const users = messages
     .filter((message): message is Extract<Message, { role: "user" }> => message.role === "user")
-    .flatMap((message) => message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])))
+    .flatMap((message) =>
+      message.content.flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : [])),
+    )
     .slice(-3)
   const failures = messages.flatMap((message) =>
     message.role === "assistant"
@@ -677,7 +684,7 @@ const estimateMessagesTokens = (messages: Message[]): number =>
 const estimateMessageTokens = (message: Message): number => {
   switch (message.role) {
     case "user":
-      return message.parts.reduce((sum, part) => sum + estimateTextTokens(textOfPart(part)), 0)
+      return estimateUserContentTokens(message.content)
     case "assistant":
       return message.parts.reduce((sum, part) => sum + estimateTextTokens(textOfPart(part)), 0)
     case "system":
@@ -718,7 +725,7 @@ const renderTranscript = (messages: Message[]): string =>
     .map((message) => {
       switch (message.role) {
         case "user":
-          return `[用户]\n${message.parts.map(textOfPart).join("\n")}`
+          return `[用户]\n${message.content.map(textOfUserContent).join("\n")}`
         case "assistant": {
           const parts = message.parts.map((part) => {
             if (part.type === "tool") {
@@ -736,6 +743,9 @@ const renderTranscript = (messages: Message[]): string =>
       }
     })
     .join("\n\n")
+
+const textOfUserContent = (part: Extract<Message, { role: "user" }>["content"][number]): string =>
+  part.type === "text" && typeof part.text === "string" ? part.text : "[图片]"
 
 const truncate = (text: string, limit: number): string => {
   if (text.length <= limit) return text

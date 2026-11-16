@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import type { Delivery, DurableEvent, Message, Session, TaskState } from "@easycode/schema"
+import type { Delivery, DurableEvent, JsonObject, Message, Session, TaskState } from "@easycode/schema"
 import { zeroUsage } from "@easycode/schema"
 
 import type { AgentRegistry } from "../agent.js"
@@ -62,7 +62,10 @@ export interface SessionManager {
   /** 当前任务的持久化工作记忆，没有任务时为空。 */
   task(sessionID: string): Promise<TaskState | undefined>
   /** 接纳一条用户输入并唤醒执行。这是 UI 唯一的写入口。 */
-  prompt(sessionID: string, input: { text: string; delivery?: Delivery }): Promise<{ inputID: string }>
+  prompt(
+    sessionID: string,
+    input: { text: string; content?: JsonObject[]; delivery?: Delivery },
+  ): Promise<{ inputID: string }>
   /** 中断当前回合。空闲时是空操作，因此可以安全重试。 */
   interrupt(sessionID: string): Promise<void>
   /** 置顶或取消置顶会话。 */
@@ -263,10 +266,17 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     return session
   }
 
-  const prompt = async (sessionID: string, input: { text: string; delivery?: Delivery }) => {
+  const prompt = async (
+    sessionID: string,
+    input: { text: string; content?: JsonObject[]; delivery?: Delivery },
+  ) => {
     const handle = await load(sessionID)
     const text = input.text.trim()
-    if (text.length === 0) throw new Error("输入内容不能为空")
+    const content = [
+      ...(text.length > 0 ? [{ type: "text" as const, text }] : []),
+      ...(input.content ?? []),
+    ]
+    if (content.length === 0) throw new Error("输入内容不能为空")
 
     const inputID = newInputID()
     await handle.append({
@@ -275,6 +285,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       timestamp: Date.now(),
       inputID,
       text,
+      content,
       delivery: input.delivery ?? "steer",
     })
 

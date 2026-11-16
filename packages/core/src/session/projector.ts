@@ -1,6 +1,7 @@
 import type {
   Delivery,
   DurableEvent,
+  JsonObject,
   Message,
   Part,
   PermissionRequest,
@@ -26,7 +27,7 @@ export interface ProjectedState {
   session: Session
   messages: Message[]
   /** 已接纳但尚未转为可见消息的输入 */
-  pendingInputs: Map<string, { text: string; delivery: Delivery }>
+  pendingInputs: Map<string, { text: string; content: JsonObject[]; delivery: Delivery }>
   /** 待审批的权限请求（已写入日志但还没收到回复的） */
   pendingPermissions: Map<string, PermissionRequest>
   /** 等待用户回答的问题（工具提问与 Runner 检查点共用） */
@@ -116,7 +117,11 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       break
 
     case "input.admitted":
-      state.pendingInputs.set(event.inputID, { text: event.text, delivery: event.delivery })
+      state.pendingInputs.set(event.inputID, {
+        text: event.text,
+        content: event.content.length > 0 ? event.content : [{ type: "text", text: event.text }],
+        delivery: event.delivery,
+      })
       break
 
     case "input.promoted": {
@@ -132,7 +137,7 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
           id: event.messageID,
           role: "user",
           createdAt: event.timestamp,
-          parts: [{ type: "text", text: input?.text ?? "" }],
+          content: input?.content ?? [{ type: "text", text: "" }],
         },
         event.seq,
       )
@@ -339,7 +344,9 @@ const settleTool = (state: ProjectedState, callID: string, toolState: ToolState)
 export const nextPartIndex = (message: Message): number => ("parts" in message ? message.parts.length : 0)
 
 /** 取出某个会话中所有尚未转为可见消息的输入，按接纳顺序排列。 */
-export const pendingInputList = (state: ProjectedState): Array<{ inputID: string; text: string; delivery: Delivery }> =>
+export const pendingInputList = (
+  state: ProjectedState,
+): Array<{ inputID: string; text: string; content: JsonObject[]; delivery: Delivery }> =>
   [...state.pendingInputs.entries()].map(([inputID, value]) => ({ inputID, ...value }))
 
 /** 会话累计用量的兜底值，用于日志与 UI 展示。 */

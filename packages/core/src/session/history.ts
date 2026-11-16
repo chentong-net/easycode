@@ -1,8 +1,13 @@
-import type { Content, Message, Part, ToolDefinition } from "@easycode/schema"
+import type { Content, JsonObject, Message, Part, ToolDefinition } from "@easycode/schema"
 
 import type { LLMMessage } from "../llm/types.js"
 import { createLogger } from "../log.js"
-import { estimateTextTokens, MESSAGE_OVERHEAD_TOKENS, TOOL_OVERHEAD_TOKENS } from "../util/token.js"
+import {
+  estimateTextTokens,
+  IMAGE_TOKEN_ESTIMATE,
+  MESSAGE_OVERHEAD_TOKENS,
+  TOOL_OVERHEAD_TOKENS,
+} from "../util/token.js"
 import type { ProjectedState } from "./projector.js"
 import { renderTaskState } from "./task.js"
 
@@ -38,7 +43,7 @@ export const buildLLMMessages = (state: ProjectedState, options: HistoryOptions)
   for (const message of selected) {
     switch (message.role) {
       case "user":
-        result.push({ role: "user", content: toUserContent(message) })
+        result.push({ role: "user", content: message.content })
         break
 
       case "system":
@@ -127,17 +132,6 @@ export const selectHistoryMessages = (state: ProjectedState, baselineSeq: number
   })
 }
 
-/** 用户消息的内容块：文本与图片原样传递。 */
-const toUserContent = (message: Extract<Message, { role: "user" }>): Content[] =>
-  message.parts.flatMap((part): Content[] => {
-    if (part.type === "text") return [{ type: "text", text: part.text }]
-    if (part.type === "file") {
-      return [{ type: "file", mime: part.mime, data: part.data, ...(part.name ? { name: part.name } : {}) }]
-    }
-    // 用户消息里出现工具或推理 part 属于异常情况，忽略即可
-    return []
-  })
-
 /** 拼接助手消息里的全部文本 part。 */
 const joinTextParts = (message: Extract<Message, { role: "assistant" }>): string =>
   message.parts
@@ -190,6 +184,8 @@ export const estimateRequestTokens = (
         total += estimateTextTokens(message.text)
         break
       case "user":
+        total += estimateUserContentTokens(message.content)
+        break
       case "tool":
         total += message.content.reduce(
           (sum, part) => sum + (part.type === "text" ? estimateTextTokens(part.text) : estimateTextTokens(part.data)),
@@ -213,3 +209,10 @@ export const estimateRequestTokens = (
 
   return total
 }
+
+/** 用户 content 中的文本按字符估算，其余图片 JSON 使用固定图片预算。 */
+export const estimateUserContentTokens = (content: JsonObject[]): number =>
+  content.reduce((total, part) => {
+    if (part.type === "text" && typeof part.text === "string") return total + estimateTextTokens(part.text)
+    return total + IMAGE_TOKEN_ESTIMATE
+  }, 0)

@@ -302,6 +302,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       timestamp: Date.now(),
       inputID,
       text,
+      content: [{ type: "text", text }],
       delivery: "steer",
     })
     await handle.append({
@@ -1099,7 +1100,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         inputID: item.inputID,
         messageID,
       })
-      texts.push(item.text)
+      texts.push(item.text || (item.content.length > 0 ? "用户上传了一张图片" : ""))
     }
 
     if (texts.length > 0) {
@@ -1304,12 +1305,13 @@ const latestAssistantText = (state: ProjectedState): string | undefined => {
 const firstUserText = (state: ProjectedState): string | undefined => {
   for (const message of state.messages) {
     if (message.role !== "user") continue
-    const text = message.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
+    const text = message.content
+      .filter((part) => part.type === "text" && typeof part.text === "string")
+      .map((part) => part.text as string)
       .join("")
       .trim()
     if (text.length > 0) return text
+    if (message.content.length > 0) return "用户上传了一张图片"
   }
   return undefined
 }

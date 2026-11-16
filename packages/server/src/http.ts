@@ -9,7 +9,7 @@ import { ProtocolError, statusForTag, type ErrorTag } from "@easycode/protocol"
  * CORS 头」这种极难排查的问题——浏览器只会说「请求失败」，不给任何细节。
  */
 
-/** 单次请求体的上限。本地接口的请求体都很小，超过这个量说明不是正常调用。 */
+/** 普通 JSON 请求体的默认上限；带 Base64 图片的 prompt 会显式放宽。 */
 const MAX_BODY_BYTES = 1024 * 1024
 
 /**
@@ -58,15 +58,15 @@ export const sendPreflight = (res: ServerResponse): void => {
  * 边读边累计长度，超过上限立刻中断连接：否则一个畸形的请求
  * 就能把整个 sidecar 进程的内存吃光。
  */
-export const readJSON = async (req: IncomingMessage): Promise<unknown> => {
+export const readJSON = async (req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<unknown> => {
   const chunks: Buffer[] = []
   let size = 0
 
   for await (const chunk of req) {
     const buffer = chunk as Buffer
     size += buffer.length
-    if (size > MAX_BODY_BYTES) {
-      throw new ProtocolError("bad_request", `请求体超过上限（${MAX_BODY_BYTES} 字节）`)
+    if (size > maxBytes) {
+      throw new ProtocolError("bad_request", `请求体超过上限（${maxBytes} 字节）`)
     }
     chunks.push(buffer)
   }

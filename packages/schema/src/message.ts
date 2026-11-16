@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { JsonObjectSchema } from "./image.js"
 import { ToolMetadata } from "./tool.js"
 import { Usage } from "./usage.js"
 
@@ -101,11 +102,16 @@ const messageBase = {
   createdAt: z.number(),
 }
 
-/** 用户消息：由一条已转为可见消息的输入产生。 */
+/**
+ * 用户消息：由一条已转为可见消息的输入产生。
+ *
+ * `content` 是最终发送给模型的 content 块。文本、Base64 图片和 Files API
+ * 文件引用都直接作为 JSON 对象保存，投影层与协议层不需要重新解释图片实现。
+ */
 export const UserMessage = z.object({
   ...messageBase,
   role: z.literal("user"),
-  parts: z.array(Part),
+  content: z.array(JsonObjectSchema).min(1),
 })
 
 export type UserMessage = z.infer<typeof UserMessage>

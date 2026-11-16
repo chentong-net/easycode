@@ -2,6 +2,8 @@ import { z } from "zod"
 
 import {
   Delivery,
+  ImagePlatform,
+  JsonObjectSchema,
   Message,
   PermissionReply,
   PermissionRequest,
@@ -144,15 +146,38 @@ export const CreateSessionRequest = z.object({
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequest>
 
-/** 提交用户输入。 */
-export const PromptRequest = z.object({
-  text: z.string().min(1, "输入内容不能为空"),
-  /**
-   * 投递方式。缺省为 `steer`（插话）：用户在回合运行中输入的内容
-   * 默认应当在下一个安全边界立刻生效，而不是等整轮跑完。
-   */
-  delivery: Delivery.optional(),
+/** 准备一张本地图片，返回可直接加入模型 content 的 JSON。 */
+export const ImagePrepareRequest = z.object({
+  path: z.string().trim().min(1, "图片路径不能为空"),
+  platform: ImagePlatform,
 })
+
+export type ImagePrepareRequest = z.infer<typeof ImagePrepareRequest>
+
+export const ImagePrepareResponse = JsonObjectSchema
+
+export type ImagePrepareResponse = z.infer<typeof ImagePrepareResponse>
+
+/** 提交用户输入。图片 content 已由独立图片接口准备完成。 */
+export const PromptRequest = z
+  .object({
+    text: z.string(),
+    /** 每个元素都会直接加入用户消息 content；当前最多允许一张图片。 */
+    content: z.array(JsonObjectSchema).max(1, "每条消息最多携带一张图片").default([]),
+    /**
+     * 投递方式。缺省为 `steer`（插话）：用户在回合运行中输入的内容
+     * 默认应当在下一个安全边界立刻生效，而不是等整轮跑完。
+     */
+    delivery: Delivery.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.text.trim().length === 0 && value.content.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "输入内容不能为空",
+      })
+    }
+  })
 
 export type PromptRequest = z.infer<typeof PromptRequest>
 

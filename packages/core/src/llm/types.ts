@@ -1,4 +1,4 @@
-import type { Content, ToolDefinition, Usage } from "@easycode/schema"
+import type { Content, JsonObject, ToolDefinition, Usage } from "@easycode/schema"
 
 /**
  * LLM 协议层的类型定义。
@@ -19,7 +19,7 @@ export interface LLMToolCall {
 /** 发给模型的一条消息。 */
 export type LLMMessage =
   | { role: "system"; text: string }
-  | { role: "user"; content: Content[] }
+  | { role: "user"; content: JsonObject[] }
   | { role: "assistant"; text: string; toolCalls: LLMToolCall[] }
   | { role: "tool"; callID: string; content: Content[] }
 

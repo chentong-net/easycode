@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 
 import {
   calculateCompactionBudget,
+  ImageServiceError,
   QuestionAnswerInvalidError,
   QuestionRequestNotFoundError,
   WorkspaceDeleteError,
@@ -14,6 +15,7 @@ import {
   CreateWorkspaceRequest,
   CreateSessionRequest,
   Endpoints,
+  ImagePrepareRequest,
   ModelConnectionTestRequest,
   PinWorkspaceRequest,
   PinSessionRequest,
@@ -32,6 +34,9 @@ import { z, type ZodTypeAny } from "zod"
 
 import { readJSON, sendError, sendJSON, sendPreflight } from "./http.js"
 import { streamEvents } from "./sse.js"
+
+/** 10 MiB 原图编码成 Base64 后约 13.34 MiB，预留 JSON 结构与少量文本空间。 */
+const MAX_PROMPT_BODY_BYTES = 15 * 1024 * 1024
 
 /**
  * 路由层：把 HTTP 请求翻译成 Core 的调用，再把结果翻译回 JSON。
@@ -143,6 +148,22 @@ const handleRequest = async (
     if (method === "PUT") {
       const body = parseBody(RuntimeConfigUpdateRequest, await readJSON(req))
       sendJSON(res, 200, await core.configuration.update(body))
+      return
+    }
+    throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+  }
+
+  if (resource === "images") {
+    if (rest.length === 1 && rest[0] === "prepare" && method === "POST") {
+      const body = parseBody(ImagePrepareRequest, await readJSON(req))
+      try {
+        sendJSON(res, 200, await core.images.prepare(body.platform, { path: body.path }))
+      } catch (error) {
+        if (error instanceof ImageServiceError) {
+          throw new ProtocolError(error.kind === "upstream" ? "internal" : error.kind, error.message)
+        }
+        throw error
+      }
       return
     }
     throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
@@ -271,10 +292,14 @@ const handleRequest = async (
 
     case "prompt": {
       await requireSession(core, sessionID)
-      const body = parseBody(PromptRequest, await readJSON(req))
+      const body = parseBody(PromptRequest, await readJSON(req, MAX_PROMPT_BODY_BYTES))
       const result = await core.sessions.prompt(
         sessionID,
-        body.delivery === undefined ? { text: body.text } : { text: body.text, delivery: body.delivery },
+        {
+          text: body.text,
+          content: body.content,
+          ...(body.delivery === undefined ? {} : { delivery: body.delivery }),
+        },
       )
       sendJSON(res, 202, result)
       return
@@ -401,6 +426,7 @@ export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.config()}`,
   `PUT  ${Endpoints.config()}`,
   `POST ${Endpoints.testConfig()}`,
+  `POST ${Endpoints.prepareImage()}`,
   `GET  ${Endpoints.workspaces()}`,
   `POST ${Endpoints.workspaces()}`,
   `PATCH ${Endpoints.workspace(":id")}`,

@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { JsonObjectSchema } from "./image.js"
 import { Content } from "./message.js"
 import { PermissionReply } from "./permission.js"
 import { QuestionAnswer, QuestionPrompt, QuestionSource } from "./question.js"
@@ -101,6 +102,11 @@ const InputAdmitted = z.object({
   type: z.literal("input.admitted"),
   inputID: z.string(),
   text: z.string(),
+  /**
+   * 最终 content 块。旧事件没有这个字段，读取时默认为空数组，
+   * 投影阶段会把 text 转成普通文本块。
+   */
+  content: z.array(JsonObjectSchema).default([]),
   delivery: Delivery,
 })
 

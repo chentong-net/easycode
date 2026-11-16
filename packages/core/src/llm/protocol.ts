@@ -1,4 +1,4 @@
-import type { Content, ToolDefinition, Usage } from "@easycode/schema"
+import type { Content, JsonObject, ToolDefinition, Usage } from "@easycode/schema"
 
 import { newToolCallID } from "../id.js"
 import { classifyHTTPError, describeError, LLMError } from "./error.js"
@@ -16,9 +16,7 @@ import type { LLMEvent, LLMMessage, LLMRequest } from "./types.js"
 /* 报文形状（只声明我们真正读写的字段）                                          */
 /* -------------------------------------------------------------------------- */
 
-type OpenAIRequestContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } }
+type OpenAIRequestContentPart = JsonObject
 
 type OpenAIMessage =
   | { role: "system"; content: string }
@@ -144,16 +142,15 @@ export const toOpenAIMessages = (messages: LLMMessage[]): OpenAIMessage[] => {
   return result
 }
 
-/** 用户消息的内容：纯文本走字符串形式（兼容性最好），含附件时走内容数组。 */
-const toUserContent = (content: Content[]): string | OpenAIRequestContentPart[] => {
-  if (content.every((part) => part.type === "text")) {
-    return content.map((part) => part.text).join("\n\n")
+/** 用户消息的 content 已由 ImageService 转成最终 JSON，这里只做纯文本兼容压缩。 */
+const toUserContent = (content: JsonObject[]): string | OpenAIRequestContentPart[] => {
+  const text = content
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text as string)
+  if (text.length === content.length) {
+    return text.join("\n\n")
   }
-  return content.map((part) =>
-    part.type === "text"
-      ? { type: "text" as const, text: part.text }
-      : { type: "image_url" as const, image_url: { url: `data:${part.mime};base64,${part.data}` } },
-  )
+  return content
 }
 
 /**

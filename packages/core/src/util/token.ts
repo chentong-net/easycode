@@ -27,3 +27,11 @@ export const estimateTextTokens = (text: string): number => {
  */
 export const MESSAGE_OVERHEAD_TOKENS = 4
 export const TOOL_OVERHEAD_TOKENS = 12
+
+/**
+ * 单张图片的保守 token 预算。
+ *
+ * 图片 content 是 provider JSON，不能把 Base64 字符当文本估算；DeepSeek
+ * 文档给出的单图上限约为 1024 token，其他兼容模型也先用同一预算。
+ */
+export const IMAGE_TOKEN_ESTIMATE = 1024
