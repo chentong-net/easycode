@@ -1,6 +1,6 @@
 import type { Content, JsonObject, Message, Part } from "@easycode/schema"
-import { Copy, Ellipsis } from "lucide-react"
-import { useState, type ComponentProps } from "react"
+import { Copy, Ellipsis, LoaderCircle } from "lucide-react"
+import { useEffect, useState, type ComponentProps } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -125,22 +125,7 @@ const UserParts = ({ message }: { message: Extract<Message, { role: "user" }> })
         </div>
       )
     }
-    const url = dataImageURL(part) ?? cachedImagePreview(part)
-    if (url !== undefined) {
-      return <img key={`image-${index}`} className="message-image" src={url} alt="用户上传的图片" />
-    }
-    if (part.type === "file") {
-      return (
-        <div key={`file-${index}`} className="message-file">
-          附件：图片（DeepSeek Files）
-        </div>
-      )
-    }
-    return (
-      <div key={`content-${index}`} className="message-file">
-        附件：图片
-      </div>
-    )
+    return <UserImage key={`image-${index}`} content={part} />
   })
 }
 
@@ -151,6 +136,47 @@ const dataImageURL = (part: JsonObject): string | undefined => {
   if (part.type !== "image_url" || typeof part.image_url !== "object" || part.image_url === null) return undefined
   if (!("url" in part.image_url) || typeof part.image_url.url !== "string") return undefined
   return part.image_url.url.startsWith("data:image/") ? part.image_url.url : undefined
+}
+
+type ImagePreviewState =
+  | { phase: "loading" }
+  | { phase: "ready"; url: string }
+  | { phase: "missing" }
+
+const UserImage = ({ content }: { content: JsonObject }) => {
+  const direct = dataImageURL(content)
+  const [preview, setPreview] = useState<ImagePreviewState>(
+    direct === undefined ? { phase: "loading" } : { phase: "ready", url: direct },
+  )
+
+  useEffect(() => {
+    if (direct !== undefined) {
+      setPreview({ phase: "ready", url: direct })
+      return
+    }
+
+    let active = true
+    setPreview({ phase: "loading" })
+    void cachedImagePreview(content).then((url) => {
+      if (!active) return
+      setPreview(url === undefined ? { phase: "missing" } : { phase: "ready", url })
+    })
+    return () => {
+      active = false
+    }
+  }, [content, direct])
+
+  if (preview.phase === "ready") {
+    return <img className="message-image" src={preview.url} alt="用户上传的图片" />
+  }
+  if (preview.phase === "loading") {
+    return (
+      <div className="message-image message-image-placeholder" aria-label="正在加载图片预览">
+        <LoaderCircle size={16} className="settings-test-spinner" />
+      </div>
+    )
+  }
+  return <div className="message-file">附件：图片</div>
 }
 
 const CopyButton = ({ text }: { text: string }) => {

@@ -881,6 +881,14 @@ pre {
   object-fit: cover;
 }
 
+.message-image-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  background: var(--bg-hover);
+}
+
 .message-error {
   color: var(--danger);
   font-size: 13px;

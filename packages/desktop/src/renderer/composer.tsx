@@ -83,7 +83,9 @@ export const Composer = ({
     try {
       const content = await onPrepareImage(item.path, controller.signal)
       if (!controller.signal.aborted) {
-        cacheImagePreview(content, item.preview)
+        await cacheImagePreview(content, item.preview)
+      }
+      if (!controller.signal.aborted) {
         updateImage(item.id, { phase: "ready", content, error: undefined })
       }
     } catch (cause) {
