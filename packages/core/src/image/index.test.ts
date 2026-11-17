@@ -62,11 +62,20 @@ test("missing and unknown adapters fall back to Base64", async () => {
         (entry.data as { adapter?: string } | undefined)?.adapter === "base64",
     ),
   )
+
+  assert.deepEqual(registry.platforms(), {
+    defaultPlatform: "base64",
+    platforms: [
+      { platform: "base64", displayName: "Base64" },
+      { platform: "deepseek-files", displayName: "DeepSeek Files API" },
+    ],
+  })
 })
 
 test("adapter execution failures are returned without fallback", async () => {
   const failing: ImageService = {
     platform: "failing",
+    displayName: "Failing",
     async prepare() {
       throw new Error("adapter failed")
     },
@@ -89,6 +98,7 @@ test("adapter execution failures are returned without fallback", async () => {
 test("duplicate adapter identifiers fail registration", () => {
   const duplicate: ImageService = {
     platform: "base64",
+    displayName: "Duplicate Base64",
     async prepare() {
       throw new Error("unused")
     },

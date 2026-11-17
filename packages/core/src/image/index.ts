@@ -5,6 +5,7 @@ import {
   ImageServiceError,
   type ImageInput,
   type ImagePrepareResult,
+  type ImagePlatformList,
   type ImageService,
   type ImageServiceRegistry,
 } from "./types.js"
@@ -43,6 +44,13 @@ export const createImageServiceRegistry = (
   }
 
   return {
+    platforms: (): ImagePlatformList => ({
+      defaultPlatform: "base64",
+      platforms: [...services.values()].map((service) => ({
+        platform: service.platform,
+        displayName: service.displayName,
+      })),
+    }),
     prepare: async (
       platform: string | undefined,
       input: ImageInput,

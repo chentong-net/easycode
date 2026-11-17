@@ -8,7 +8,18 @@ export interface ImageInput {
 /** 图片准备策略：返回可直接加入模型 content 数组的 JSON。 */
 export interface ImageService {
   readonly platform: string
+  readonly displayName: string
   prepare(input: ImageInput, signal?: AbortSignal): Promise<JsonObject>
+}
+
+export interface ImagePlatformInfo {
+  platform: string
+  displayName: string
+}
+
+export interface ImagePlatformList {
+  defaultPlatform: string
+  platforms: ImagePlatformInfo[]
 }
 
 export interface ImagePrepareResult {
@@ -20,6 +31,7 @@ export interface ImagePrepareResult {
 
 /** 根据请求指定的平台选择具体实现。 */
 export interface ImageServiceRegistry {
+  platforms(): ImagePlatformList
   prepare(
     platform: string | undefined,
     input: ImageInput,

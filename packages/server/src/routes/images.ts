@@ -3,6 +3,7 @@ import {
   ApiResponse,
   ImagePrepareRequest,
   ImagePrepareResponse,
+  ImagePlatformListResponse,
 } from "@easycode/protocol"
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod"
 
@@ -17,6 +18,16 @@ export const imageRoutes: FastifyPluginAsyncZod<ImageRoutesOptions> = async (
   app,
   options,
 ) => {
+  app.get(
+    "/platforms",
+    {
+      schema: {
+        response: { 200: ApiResponse(ImagePlatformListResponse) },
+      },
+    },
+    async () => success(options.core.images.platforms()),
+  )
+
   app.post(
     "/prepare",
     {

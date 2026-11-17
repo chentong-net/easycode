@@ -23,6 +23,7 @@ const FileResponse = z.object({
 /** 上传本地图片到 DeepSeek Files API，并返回 file 内容块。 */
 export class DeepSeekFilesImageService implements ImageService {
   readonly platform = "deepseek-files"
+  readonly displayName = "DeepSeek Files API"
 
   constructor(private readonly options: DeepSeekFilesImageServiceOptions) {}
 

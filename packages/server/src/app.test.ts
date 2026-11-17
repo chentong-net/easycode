@@ -30,6 +30,12 @@ before(async () => {
     sessions: {
       get: async () => undefined,
     },
+    images: {
+      platforms: () => ({
+        defaultPlatform: "base64",
+        platforms: [{ platform: "base64", displayName: "Base64" }],
+      }),
+    },
   } as unknown as Core
 
   application = await createApplication({ core, token, logger })
@@ -52,10 +58,28 @@ test("health uses the success envelope", async () => {
     message: "SUCCESS",
     data: {
       ok: true,
-      version: "0.12.0",
+      version: "0.13.0",
       model: "test-model",
       contextWindow: 128_000,
       maxOutputTokens: 8_192,
+    },
+  })
+})
+
+test("image platforms are loaded through the success envelope", async () => {
+  const response = await application.app.inject({
+    method: "GET",
+    url: "/api/images/platforms",
+    headers: auth,
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), {
+    code: 0,
+    message: "SUCCESS",
+    data: {
+      defaultPlatform: "base64",
+      platforms: [{ platform: "base64", displayName: "Base64" }],
     },
   })
 })

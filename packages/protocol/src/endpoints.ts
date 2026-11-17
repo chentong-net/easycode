@@ -18,7 +18,7 @@ export const API_PREFIX = "/api"
  * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
  * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
-export const API_VERSION = "0.12.0"
+export const API_VERSION = "0.13.0"
 
 /** 鉴权头名称。桌面端的渲染进程从 preload 拿到 token 后放在这个头里。 */
 export const AUTH_HEADER = "x-easycode-token"
@@ -51,6 +51,9 @@ export const Endpoints = {
 
   /** 使用当前表单值测试模型连接 */
   testConfig: (): string => `${API_PREFIX}/config/test`,
+
+  /** 当前服务端已注册的图片平台 */
+  imagePlatforms: (): string => `${API_PREFIX}/images/platforms`,
 
   /** 根据请求指定的平台准备一张本地图片 */
   prepareImage: (): string => `${API_PREFIX}/images/prepare`,

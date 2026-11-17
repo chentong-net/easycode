@@ -154,6 +154,20 @@ export const ImagePrepareRequest = z.object({
 
 export type ImagePrepareRequest = z.infer<typeof ImagePrepareRequest>
 
+export const ImagePlatformInfo = z.object({
+  platform: z.string().min(1),
+  displayName: z.string().min(1),
+})
+
+export type ImagePlatformInfo = z.infer<typeof ImagePlatformInfo>
+
+export const ImagePlatformListResponse = z.object({
+  defaultPlatform: z.string().min(1),
+  platforms: z.array(ImagePlatformInfo).min(1),
+})
+
+export type ImagePlatformListResponse = z.infer<typeof ImagePlatformListResponse>
+
 export const ImagePrepareResponse = z.object({
   adapter: z.string().min(1),
   requestedPlatform: z.string().min(1).optional(),
