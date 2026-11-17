@@ -2,7 +2,6 @@ import { z } from "zod"
 
 import {
   Delivery,
-  ImagePlatform,
   JsonObjectSchema,
   Message,
   PermissionReply,
@@ -149,12 +148,18 @@ export type CreateSessionRequest = z.infer<typeof CreateSessionRequest>
 /** 准备一张本地图片，返回可直接加入模型 content 的 JSON。 */
 export const ImagePrepareRequest = z.object({
   path: z.string().trim().min(1, "图片路径不能为空"),
-  platform: ImagePlatform,
+  /** Adapter 标识由服务端注册表校验，协议不维护封闭枚举。 */
+  platform: z.string().trim().min(1).max(100).optional(),
 })
 
 export type ImagePrepareRequest = z.infer<typeof ImagePrepareRequest>
 
-export const ImagePrepareResponse = JsonObjectSchema
+export const ImagePrepareResponse = z.object({
+  adapter: z.string().min(1),
+  requestedPlatform: z.string().min(1).optional(),
+  fallback: z.boolean(),
+  content: JsonObjectSchema,
+})
 
 export type ImagePrepareResponse = z.infer<typeof ImagePrepareResponse>
 

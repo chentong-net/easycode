@@ -1,4 +1,4 @@
-import type { ImagePlatform, JsonObject } from "@easycode/schema"
+import type { JsonObject } from "@easycode/schema"
 import { z } from "zod"
 
 import { describeError } from "../llm/error.js"
@@ -22,7 +22,7 @@ const FileResponse = z.object({
 
 /** 上传本地图片到 DeepSeek Files API，并返回 file 内容块。 */
 export class DeepSeekFilesImageService implements ImageService {
-  readonly platform = "deepseek-files" satisfies ImagePlatform
+  readonly platform = "deepseek-files"
 
   constructor(private readonly options: DeepSeekFilesImageServiceOptions) {}
 

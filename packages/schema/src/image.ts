@@ -1,14 +1,5 @@
 import { z } from "zod"
 
-/**
- * 用户可以选择的图片处理平台。
- *
- * 平台选择由客户端随图片准备请求发送，Core 只负责把标识映射到具体实现。
- */
-export const ImagePlatform = z.enum(["base64", "deepseek-files"])
-
-export type ImagePlatform = z.infer<typeof ImagePlatform>
-
 /** 可以写入 JSON、事件日志和 HTTP 报文的值。 */
 export type JsonValue =
   | string
