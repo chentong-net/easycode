@@ -157,6 +157,30 @@ curl -H "x-easycode-token: <令牌>" http://127.0.0.1:8080/api/health
 
 Core 使用 `Map<string, ImageService>` 注册图片 Adapter，不再通过公共枚举限制实现方式。Adapter 自行声明 `platform`，新增实现时只需注册 Adapter，不需要修改协议。未提供 `platform` 或注册表中找不到对应项时回退 Base64；Adapter 已找到但执行失败时不会回退，而是直接返回业务错误。
 
+客户端通过 `GET /api/images/platforms` 获取当前已注册平台：
+
+```json
+{
+  "code": 0,
+  "message": "SUCCESS",
+  "data": {
+    "defaultPlatform": "base64",
+    "platforms": [
+      {
+        "platform": "base64",
+        "displayName": "Base64"
+      },
+      {
+        "platform": "deepseek-files",
+        "displayName": "DeepSeek Files API"
+      }
+    ]
+  }
+}
+```
+
+桌面端使用该列表动态生成下拉框，并把选中的字符串保存在本地。已保存平台不在最新列表中时选择 `defaultPlatform`；平台列表请求失败时回退 Base64。
+
 响应会记录实际使用的 Adapter：
 
 ```json
@@ -303,6 +327,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | --- | --- | --- |
 | GET | `/api/health` | 服务状态、协议版本、模型 id、上下文窗口与输出预算 |
 | GET | `/api/agents` | 可用 agent 列表 |
+| GET | `/api/images/platforms` | 当前已注册的图片平台 |
 | GET | `/api/config` | 可安全展示的 TOML 运行配置；密钥只返回是否已配置 |
 | PUT | `/api/config` | 保存模型、联网和日志配置到固定 `config.toml` |
 | POST | `/api/config/test` | 使用当前表单值发送一次最小模型请求，验证连接 |
