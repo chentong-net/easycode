@@ -1,5 +1,6 @@
 import type { EasyCodeClient } from "@easycode/client"
 import {
+  type ImagePlatformInfo,
   RuntimeConfigResponse,
   RuntimeConfigUpdateRequest,
   type WebProvider,
@@ -9,6 +10,11 @@ import { useEffect, useState, type FormEvent } from "react"
 
 import { hasHost, restartApp } from "./bridge"
 import { describeError } from "./format"
+import {
+  base64Platform,
+  readImagePlatform,
+  saveImagePlatform,
+} from "./image-platform"
 
 interface ConfigForm {
   baseUrl: string
@@ -86,6 +92,9 @@ export const SettingsDialog = ({
   const [restarting, setRestarting] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loadError, setLoadError] = useState<string | undefined>()
+  const [imagePlatforms, setImagePlatforms] = useState<ImagePlatformInfo[]>([base64Platform])
+  const [imagePlatform, setImagePlatform] = useState(base64Platform.platform)
+  const [imagePlatformsError, setImagePlatformsError] = useState<string | undefined>()
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback | undefined>()
   const [connectionTest, setConnectionTest] = useState<ConnectionTestState>({ phase: "idle" })
 
@@ -96,19 +105,42 @@ export const SettingsDialog = ({
     setSaved(false)
     setConnectionTest({ phase: "idle" })
     setLoadError(undefined)
+    setImagePlatforms([base64Platform])
+    setImagePlatform(readImagePlatform() ?? base64Platform.platform)
+    setImagePlatformsError(undefined)
     setSaveFeedback(undefined)
     setClear(EMPTY_CLEAR)
     void (async () => {
-      try {
-        const next = await client.config.get(controller.signal)
-        if (controller.signal.aborted) return
-        setConfig(next)
-        setForm(toForm(next))
-      } catch (cause) {
-        if (!controller.signal.aborted) setLoadError(describeError(cause))
-      } finally {
-        if (!controller.signal.aborted) setLoading(false)
+      const [configResult, platformsResult] = await Promise.allSettled([
+        client.config.get(controller.signal),
+        client.images.platforms(controller.signal),
+      ])
+      if (controller.signal.aborted) return
+
+      if (configResult.status === "fulfilled") {
+        setConfig(configResult.value)
+        setForm(toForm(configResult.value))
+      } else {
+        setLoadError(describeError(configResult.reason))
       }
+
+      if (platformsResult.status === "fulfilled") {
+        const list = platformsResult.value
+        const saved = readImagePlatform()
+        const selected = saved !== undefined && list.platforms.some((item) => item.platform === saved)
+          ? saved
+          : list.defaultPlatform
+        setImagePlatforms(list.platforms)
+        setImagePlatform(selected)
+        saveImagePlatform(selected)
+      } else {
+        setImagePlatforms([base64Platform])
+        setImagePlatform(base64Platform.platform)
+        saveImagePlatform(base64Platform.platform)
+        setImagePlatformsError(describeError(platformsResult.reason))
+      }
+
+      setLoading(false)
     })()
     return () => controller.abort()
   }, [client, open])
@@ -417,6 +449,36 @@ export const SettingsDialog = ({
                       {connectionTest.message}
                     </p>
                   )}
+                </section>
+
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>图片输入</h3>
+                    <span>平台列表由服务端提供</span>
+                  </div>
+                  <div className="settings-grid">
+                    <Field label="图片发送方式" wide>
+                      <select
+                        value={imagePlatform}
+                        onChange={(event) => {
+                          const next = event.target.value
+                          setImagePlatform(next)
+                          saveImagePlatform(next)
+                        }}
+                      >
+                        {imagePlatforms.map((item) => (
+                          <option key={item.platform} value={item.platform}>
+                            {item.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                  <p className="settings-note">
+                    {imagePlatformsError === undefined
+                      ? "该选择只保存在当前客户端；服务端会校验不存在的平台并回退 Base64。"
+                      : `无法加载服务端图片平台，已回退 Base64：${imagePlatformsError}`}
+                  </p>
                 </section>
 
                 <section className="settings-section">

@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { describeError } from "./format"
+import { readImagePlatform } from "./image-platform"
 
 /**
  * 界面的会话状态。
@@ -532,8 +533,18 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   )
 
   const prepareImage = useCallback(
-    async (path: string, signal?: AbortSignal): Promise<JsonObject> =>
-      (await client.images.prepare({ path }, signal)).content,
+    async (path: string, signal?: AbortSignal): Promise<JsonObject> => {
+      const platform = readImagePlatform()
+      return (
+        await client.images.prepare(
+          {
+            path,
+            ...(platform === undefined ? {} : { platform }),
+          },
+          signal,
+        )
+      ).content
+    },
     [client.images],
   )
 
