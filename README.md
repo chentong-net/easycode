@@ -11,7 +11,7 @@ EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在
 | `@easycode/schema` | 语义值：工作区、会话、消息、事件、工具、权限、用量 | — |
 | `@easycode/protocol` | 接口契约：端点常量、请求与响应 DTO、错误分类 | schema |
 | `@easycode/core` | Agent 运行时：回合循环、上下文组装、工具执行、权限判定、事件日志 | schema |
-| `@easycode/server` | 把 Core 绑定到 HTTP 与 SSE | core、protocol |
+| `@easycode/server` | 使用 Fastify 把 Core 绑定到 HTTP 与 SSE | core、protocol |
 | `@easycode/client` | TypeScript 客户端，供界面调用 HTTP 接口 | protocol |
 | `@easycode/cli` | 命令行入口 | core、server、protocol、schema |
 | `@easycode/desktop` | Electron 外壳、本地 sidecar 与渲染层 | core、server、client、protocol、schema |
@@ -102,6 +102,7 @@ log_level = "info"
 ```bash
 npm run build       # 按依赖顺序构建全部包
 npm run typecheck   # 各包执行 tsc --noEmit
+npm test            # 运行服务端接口测试、Client 响应解析测试和图片 Adapter 测试
 npm run clean       # 清理 dist 与 release 目录
 ```
 
@@ -142,6 +143,39 @@ curl -H "x-easycode-token: <令牌>" http://127.0.0.1:8080/api/health
 ```
 
 `packages/cli` 注册了名为 `easycode` 的 bin，执行 `npm link` 之后可以直接使用该命令。
+
+## 图片输入
+
+图片准备请求只要求本地路径，可选携带 `platform` 字符串：
+
+```json
+{
+  "path": "/home/user/screenshot.png",
+  "platform": "custom-adapter"
+}
+```
+
+Core 使用 `Map<string, ImageService>` 注册图片 Adapter，不再通过公共枚举限制实现方式。Adapter 自行声明 `platform`，新增实现时只需注册 Adapter，不需要修改协议。未提供 `platform` 或注册表中找不到对应项时回退 Base64；Adapter 已找到但执行失败时不会回退，而是直接返回业务错误。
+
+响应会记录实际使用的 Adapter：
+
+```json
+{
+  "code": 0,
+  "message": "SUCCESS",
+  "data": {
+    "adapter": "base64",
+    "requestedPlatform": "custom-adapter",
+    "fallback": true,
+    "content": {
+      "type": "image_url",
+      "image_url": {
+        "url": "data:image/png;base64,..."
+      }
+    }
+  }
+}
+```
 
 ## 桌面端
 
@@ -236,6 +270,34 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 ## HTTP 接口
 
 接口前缀为 `/api`，监听回环地址。配置了访问令牌时，请求需携带 `x-easycode-token` 头。
+
+服务端使用 Fastify 声明式路由，并按 config、images、workspaces、sessions 等领域拆分路由模块。普通 JSON 接口统一返回 `code/message/data` 信封：
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "SUCCESS",
+  "data": null
+}
+```
+
+业务失败：
+
+```json
+{
+  "code": -1,
+  "message": "会话不存在"
+}
+```
+
+- 请求已经进入业务处理并形成失败结果时，HTTP 状态仍为 `200`，通过非零 `code` 表示业务失败。
+- 路由不存在、认证失败、请求无法解析等框架或基础设施错误使用对应 HTTP 状态码，并同样返回 `code/message` 信封。
+- 成功响应始终包含 `data`，没有业务数据时为 `null`。
+- 失败响应不包含 `data`。
+- 初版业务错误码统一为 `-1`，后续在 Protocol 的错误码模块中逐步扩展。
+- SSE 是标准事件流，不使用 `code/message/data` 信封。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |

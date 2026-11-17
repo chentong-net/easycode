@@ -2,7 +2,7 @@
   "name": "@easycode/server",
   "version": "0.1.0",
   "private": true,
-  "description": "EasyCode 的本地 HTTP 服务：把 Core 暴露为 HTTP + SSE 接口",
+  "description": "EasyCode 的 Fastify 服务：把 Core 暴露为 HTTP + SSE 接口",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
