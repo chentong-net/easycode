@@ -9,36 +9,45 @@ import { z } from "zod"
  */
 
 export const ErrorTag = z.enum([
-  /** 请求本身有问题：缺字段、字段类型不对、业务上前置条件不满足 */
+  /** 请求格式不合法，或框架层无法解析请求 */
   "bad_request",
+  /** 未认证 */
+  "unauthorized",
+  /** 已认证但无权限 */
+  "forbidden",
   /** 目标资源不存在，例如会话 id 无效 */
   "not_found",
+  /** 路径存在，但不支持当前 HTTP Method */
+  "method_not_allowed",
+  /** 请求与当前资源状态冲突 */
+  "conflict",
+  /** 请求体过大 */
+  "payload_too_large",
+  /** 请求被限流 */
+  "rate_limited",
+  /** 上游服务错误 */
+  "bad_gateway",
+  /** 服务暂时不可用 */
+  "unavailable",
   /** 服务端内部错误；当前服务端会把异常的 message 写入响应体，同时记录日志 */
   "internal",
 ])
 
 export type ErrorTag = z.infer<typeof ErrorTag>
 
-/** 所有非 2xx 响应统一的响应体。 */
-export const ErrorBody = z.object({
-  error: z.object({
-    tag: ErrorTag,
-    message: z.string(),
-  }),
-})
-
-export type ErrorBody = z.infer<typeof ErrorBody>
-
-/** 错误标签到 HTTP 状态码的映射。 */
-export const statusForTag = (tag: ErrorTag): number => {
-  switch (tag) {
-    case "bad_request":
-      return 400
-    case "not_found":
-      return 404
-    case "internal":
-      return 500
-  }
+/** 把 HTTP 状态映射为传输层错误分类。 */
+export const tagForStatus = (status: number): ErrorTag => {
+  if (status === 400) return "bad_request"
+  if (status === 401) return "unauthorized"
+  if (status === 403) return "forbidden"
+  if (status === 404) return "not_found"
+  if (status === 405) return "method_not_allowed"
+  if (status === 409) return "conflict"
+  if (status === 413) return "payload_too_large"
+  if (status === 429) return "rate_limited"
+  if (status === 502) return "bad_gateway"
+  if (status === 503) return "unavailable"
+  return "internal"
 }
 
 /**
@@ -52,7 +61,7 @@ export class ProtocolError extends Error {
   readonly tag: ErrorTag
   readonly status: number
 
-  constructor(tag: ErrorTag, message: string, status: number = statusForTag(tag)) {
+  constructor(tag: ErrorTag, message: string, status = 500) {
     super(message)
     this.name = "ProtocolError"
     this.tag = tag

@@ -1,4 +1,12 @@
-import { ErrorBody, ProtocolError, type ErrorTag } from "@easycode/protocol"
+import {
+  ApiCallError,
+  ApiEnvelope,
+  ApiErrorResponse,
+  ProtocolError,
+  tagForStatus,
+  type ErrorTag,
+} from "@easycode/protocol"
+import { z, type ZodTypeAny } from "zod"
 
 /**
  * 客户端侧的 HTTP 请求工具。
@@ -51,6 +59,40 @@ export const requestJSON = async <T>(
   return (await response.json()) as T
 }
 
+/**
+ * 解开统一响应信封，并按照具体接口的 data Schema 校验业务数据。
+ *
+ * 每个 Client 方法都传入自己的 Schema，避免全局拦截器把未知结构
+ * 直接泄漏到 UI。
+ */
+export const parseEnvelopeData = <T extends ZodTypeAny>(
+  schema: T,
+  raw: unknown,
+  path: string,
+): z.infer<T> => {
+  const envelope = ApiEnvelope.safeParse(raw)
+  if (!envelope.success) {
+    throw new ProtocolError("internal", `响应不是统一接口信封（${path}）`)
+  }
+
+  if (envelope.data.code !== 0) {
+    throw new ApiCallError(
+      envelope.data.code,
+      envelope.data.message,
+      path,
+    )
+  }
+
+  const data = schema.safeParse(envelope.data.data)
+  if (data.success) return data.data
+
+  const detail = data.error.issues
+    .slice(0, 5)
+    .map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "(根)"}: ${issue.message}`)
+    .join("；")
+  throw new ProtocolError("internal", `响应 data 结构不符合预期（${path}）：${detail}`)
+}
+
 /** 打开一个流式响应。SSE 需要自己读 body，所以不能走 requestJSON。 */
 export const openStream = async (
   transport: TransportOptions,
@@ -65,20 +107,28 @@ export const openStream = async (
 
   const response = await transport.fetchImpl(joinUrl(transport.baseUrl, path), init)
   if (!response.ok) throw await toProtocolError(response)
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.includes("text/event-stream")) {
+    const payload: unknown = await response.json()
+    const envelope = ApiEnvelope.safeParse(payload)
+    if (envelope.success && envelope.data.code !== 0) {
+      throw new ApiCallError(envelope.data.code, envelope.data.message, path)
+    }
+    throw new ProtocolError("internal", "服务端没有返回可读取的事件流", response.status)
+  }
   if (!response.body) throw new ProtocolError("internal", "服务端没有返回可读取的事件流", response.status)
   return response
 }
 
 /** 把非 2xx 响应翻译成 ProtocolError。 */
 const toProtocolError = async (response: Response): Promise<ProtocolError> => {
-  let tag: ErrorTag = response.status === 404 ? "not_found" : "internal"
+  let tag: ErrorTag = tagForStatus(response.status)
   let message = `请求失败：HTTP ${response.status}`
 
   try {
-    const parsed = ErrorBody.safeParse(await response.json())
+    const parsed = ApiErrorResponse.safeParse(await response.json())
     if (parsed.success) {
-      tag = parsed.data.error.tag
-      message = parsed.data.error.message
+      message = parsed.data.message
     }
   } catch {
     // 响应体不是合法 JSON（例如中间代理返回的 HTML 错误页），保留兜底信息

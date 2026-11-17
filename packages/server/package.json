@@ -17,12 +17,16 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/app.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@easycode/core": "*",
     "@easycode/protocol": "*",
     "@easycode/schema": "*",
+    "@fastify/cors": "^11.4.3",
+    "fastify": "^5.12.8",
+    "fastify-type-provider-zod": "^4.0.2",
     "zod": "^3.24.1"
   }
 }

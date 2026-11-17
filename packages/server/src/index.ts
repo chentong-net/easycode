@@ -1,9 +1,7 @@
-import { createServer, type Server } from "node:http"
-
 import type { Core } from "@easycode/core"
 import { createLogger, type Logger } from "@easycode/core"
 
-import { createRequestHandler, describeEndpoints } from "./routes.js"
+import { createApplication } from "./app.js"
 
 /**
  * 本地 HTTP 服务。
@@ -46,70 +44,35 @@ export const listen = async (options: ListenOptions): Promise<RunningServer> => 
   const host = options.host ?? "127.0.0.1"
   const port = options.port ?? 0
 
-  const handler = createRequestHandler({
+  const application = await createApplication({
     core: options.core,
     ...(options.token === undefined ? {} : { token: options.token }),
     logger,
   })
 
-  const server = createServer(handler)
+  await application.app.listen({ port, host })
 
-  // 事件流的连接可能长时间空闲，默认的请求超时会把它拦腰截断
-  server.requestTimeout = 0
-  server.headersTimeout = 60_000
-
-  await listenOn(server, port, host)
-
-  const address = server.address()
+  const address = application.app.server.address()
   if (address === null || typeof address === "string") {
-    await close(server)
+    await application.app.close()
     throw new Error("服务启动失败：无法确定监听端口")
   }
 
   const url = `http://${host}:${address.port}`
   logger.info("HTTP 服务已启动", { url, authEnabled: options.token !== undefined && options.token.length > 0 })
-  for (const line of describeEndpoints()) logger.debug("端点", { route: line })
+  logger.debug("已注册路由", { routes: application.routes() })
 
   return {
     url,
     port: address.port,
     host,
     ...(options.token === undefined ? {} : { token: options.token }),
-    close: () => close(server, logger),
+    close: async () => {
+      await application.app.close()
+      logger.info("HTTP 服务已关闭")
+    },
   }
 }
 
-/** 把 listen 的错误事件转成 Promise 的 reject，避免启动失败被静默吞掉。 */
-const listenOn = (server: Server, port: number, host: string): Promise<void> =>
-  new Promise((resolve, reject) => {
-    const onError = (error: Error): void => {
-      server.removeListener("listening", onListening)
-      reject(error)
-    }
-    const onListening = (): void => {
-      server.removeListener("error", onError)
-      resolve()
-    }
-    server.once("error", onError)
-    server.once("listening", onListening)
-    server.listen(port, host)
-  })
-
-/**
- * 关闭服务。
- *
- * 先停止接受新连接，再销毁所有存活连接：SSE 是长连接，
- * 不主动销毁的话 `close()` 会一直等到客户端自己断开，
- * 桌面端就会卡在「正在退出」上。
- */
-const close = async (server: Server, logger?: Logger): Promise<void> => {
-  await new Promise<void>((resolve) => {
-    server.close(() => resolve())
-    server.closeAllConnections()
-  })
-  logger?.info("HTTP 服务已关闭")
-}
-
-export { createRequestHandler, describeEndpoints } from "./routes.js"
-export * from "./http.js"
+export { createApplication } from "./app.js"
 export * from "./sse.js"

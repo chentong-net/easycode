@@ -9,6 +9,7 @@
  * 因此这里不得引入 node: 内置模块、HTTP 框架或任何与进程相关的 API。
  * 一旦违反，渲染进程的构建就会失败——这是刻意的，让违规立刻暴露。
  */
+export * from "./api.js"
 export * from "./dto.js"
 export * from "./endpoints.js"
 export * from "./error.js"

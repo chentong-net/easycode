@@ -212,13 +212,6 @@ export const BulkDeleteSessionsResponse = z.object({
 
 export type BulkDeleteSessionsResponse = z.infer<typeof BulkDeleteSessionsResponse>
 
-/** 通用成功响应，用于中断这类没有返回内容的操作。 */
-export const OkResponse = z.object({
-  ok: z.literal(true),
-})
-
-export type OkResponse = z.infer<typeof OkResponse>
-
 /** 待审批请求列表。 */
 export const PermissionListResponse = z.array(PermissionRequest)
 

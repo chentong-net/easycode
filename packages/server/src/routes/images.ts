@@ -1,0 +1,43 @@
+import { ImageServiceError } from "@easycode/core"
+import {
+  ApiResponse,
+  ImagePrepareRequest,
+  ImagePrepareResponse,
+} from "@easycode/protocol"
+import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod"
+
+import { BusinessError } from "../errors.js"
+import { success } from "../response.js"
+
+import type { RouteContext } from "./shared.js"
+
+export interface ImageRoutesOptions extends RouteContext {}
+
+export const imageRoutes: FastifyPluginAsyncZod<ImageRoutesOptions> = async (
+  app,
+  options,
+) => {
+  app.post(
+    "/prepare",
+    {
+      schema: {
+        body: ImagePrepareRequest,
+        response: { 200: ApiResponse(ImagePrepareResponse) },
+      },
+    },
+    async (request) => {
+      try {
+        return success(
+          await options.core.images.prepare(request.body.platform, {
+            path: request.body.path,
+          }),
+        )
+      } catch (error) {
+        if (error instanceof ImageServiceError) {
+          throw new BusinessError(error.message)
+        }
+        throw error
+      }
+    },
+  )
+}

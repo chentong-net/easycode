@@ -3,8 +3,6 @@ import type { ServerResponse } from "node:http"
 import type { Core, Logger } from "@easycode/core"
 import { isDurableEvent, type Event } from "@easycode/schema"
 
-import { commonHeaders } from "./http.js"
-
 /**
  * 会话事件流（SSE）。
  *
@@ -37,7 +35,9 @@ export const streamEvents = async (input: StreamEventsInput): Promise<void> => {
   const { core, sessionID, res, logger } = input
 
   res.writeHead(200, {
-    ...commonHeaders(),
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "content-type, x-easycode-token",
+    "access-control-allow-methods": "GET, OPTIONS",
     "content-type": "text/event-stream; charset=utf-8",
     // no-transform 是给中间代理看的：不允许它压缩或缓冲响应体，
     // 否则流式推送会被攒成一坨再发，实时性彻底消失

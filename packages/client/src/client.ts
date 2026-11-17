@@ -1,4 +1,5 @@
 import {
+  ApiCallError,
   AgentListResponse,
   BulkDeleteSessionsRequest,
   BulkDeleteSessionsResponse,
@@ -45,7 +46,12 @@ import {
 } from "@easycode/schema"
 import { z, type ZodTypeAny } from "zod"
 
-import { openStream, requestJSON, type TransportOptions } from "./http.js"
+import {
+  openStream,
+  parseEnvelopeData,
+  requestJSON,
+  type TransportOptions,
+} from "./http.js"
 import { parseEventStream } from "./sse.js"
 
 /**
@@ -224,21 +230,33 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
       prompt: (sessionID, input, signal) => post(transport, Endpoints.prompt(sessionID), input, PromptResponse, signal),
 
       interrupt: async (sessionID, signal) => {
-        await post(transport, Endpoints.interrupt(sessionID), undefined, OkResponseSchema, signal)
+        await post(transport, Endpoints.interrupt(sessionID), undefined, NullResponseSchema, signal)
       },
 
       permissions: (sessionID, signal) =>
         get(transport, Endpoints.permissions(sessionID), PermissionListResponse, signal),
 
       replyPermission: async (sessionID, requestID, input, signal) => {
-        await post(transport, Endpoints.permissionReply(sessionID, requestID), input, OkResponseSchema, signal)
+        await post(
+          transport,
+          Endpoints.permissionReply(sessionID, requestID),
+          input,
+          NullResponseSchema,
+          signal,
+        )
       },
 
       questions: (sessionID, signal) =>
         get(transport, Endpoints.questions(sessionID), QuestionListResponse, signal),
 
       replyQuestion: async (sessionID, requestID, input, signal) => {
-        await post(transport, Endpoints.questionReply(sessionID, requestID), input, OkResponseSchema, signal)
+        await post(
+          transport,
+          Endpoints.questionReply(sessionID, requestID),
+          input,
+          NullResponseSchema,
+          signal,
+        )
       },
 
       events: (sessionID, streamOptions = {}) => streamSessionEvents(transport, hooks, sessionID, streamOptions),
@@ -247,7 +265,7 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
 }
 
 /** 中断与审批回应共用的响应体。它的结构简单到不值得单独放进 protocol。 */
-const OkResponseSchema = z.object({ ok: z.literal(true) })
+const NullResponseSchema = z.null()
 
 /* -------------------------------------------------------------------------- */
 /* 请求辅助                                                                    */
@@ -306,7 +324,13 @@ const put = async <T extends ZodTypeAny>(
 }
 
 const requestDelete = async (transport: TransportOptions, path: string, signal?: AbortSignal): Promise<void> => {
-  await requestJSON<unknown>(transport, "DELETE", path, signal === undefined ? {} : { signal })
+  const raw = await requestJSON<unknown>(
+    transport,
+    "DELETE",
+    path,
+    signal === undefined ? {} : { signal },
+  )
+  parseResponse(NullResponseSchema, raw, path)
 }
 
 /**
@@ -317,14 +341,7 @@ const requestDelete = async (transport: TransportOptions, path: string, signal?:
  * 在这里校验能把问题钉死在接口边界上，错误信息也直接指向具体的字段。
  */
 const parseResponse = <T extends ZodTypeAny>(schema: T, raw: unknown, path: string): z.infer<T> => {
-  const parsed = schema.safeParse(raw)
-  if (parsed.success) return parsed.data
-
-  const detail = parsed.error.issues
-    .slice(0, 5)
-    .map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "(根)"}: ${issue.message}`)
-    .join("；")
-  throw new ProtocolError("internal", `响应结构不符合预期（${path}）：${detail}`)
+  return parseEnvelopeData(schema, raw, path)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -368,6 +385,7 @@ async function* streamSessionEvents(
       // 流被服务端正常关闭（例如进程重启）：按断线处理，走下面的重连分支
     } catch (error) {
       if (signal?.aborted || isAbortError(error)) return
+      if (isNonRetryableStreamError(error)) throw error
       hooks.onReconnecting?.({
         attempt: attempt + 1,
         delayMs: reconnectDelay(attempt + 1),
@@ -416,3 +434,7 @@ const delay = (ms: number, signal: AbortSignal | undefined): Promise<void> =>
   })
 
 const isAbortError = (error: unknown): boolean => error instanceof Error && error.name === "AbortError"
+
+const isNonRetryableStreamError = (error: unknown): boolean =>
+  error instanceof ApiCallError ||
+  (error instanceof ProtocolError && error.status >= 400 && error.status < 500)
