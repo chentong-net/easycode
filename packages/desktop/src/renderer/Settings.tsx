@@ -448,7 +448,7 @@ export const SettingsDialog = ({
                 className="btn btn-primary"
                 disabled={loading || saving || restarting}
               >
-                {saving ? "保存中…" : "保存配置"}
+                {saving ? "保存中…" : "保存运行设置"}
               </button>
             </div>
           </footer>
