@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { ReasoningEffort } from "./model-config.js"
 import { Usage } from "./usage.js"
 
 /**
@@ -35,13 +36,20 @@ export const Session = z.object({
   directory: z.string(),
   /** 当前使用的 agent，首版只有 build */
   agent: z.string(),
+  /** 当前会话绑定的模型配置。旧会话没有该字段时由界面提示用户选择。 */
+  modelConfigID: z.string().trim().min(1).optional(),
   /**
    * 当前会话绑定的压缩配置。
    *
-   * 配置在首次发送、创建会话时固定，之后不能切换。旧会话没有该字段时兼容为
-   * 内置 coding，避免升级后无法重放已有事件。
+   * 配置在首次发送、创建会话时固定。旧会话没有该字段时由界面提示用户选择。
    */
-  compactionProfileID: z.string().trim().min(1).default("coding"),
+  compactionProfileID: z.string().trim().min(1).optional(),
+  /**
+   * 用户选择的 reasoning effort。
+   *
+   * 模型配置未声明任何 level 时省略该字段，请求也不会发送 reasoning_effort。
+   */
+  reasoningEffort: ReasoningEffort.optional(),
   /** 当前使用的模型 id */
   model: z.string(),
   createdAt: z.number(),

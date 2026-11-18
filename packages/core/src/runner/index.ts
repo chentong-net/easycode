@@ -13,6 +13,7 @@ import { addUsage } from "@easycode/schema"
 import { resolveAgent, type AgentRegistry } from "../agent.js"
 import {
   COMPACTION_PROFILE_MISSING_MESSAGE,
+  COMPACTION_PROFILE_REQUIRED_MESSAGE,
   type CompactionProfileService,
 } from "../compaction-profile/index.js"
 import type { CoreConfig } from "../config.js"
@@ -87,7 +88,17 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   const controls = new Map<string, RunControl>()
 
   const requireCompactionProfile = async (handle: SessionHandle): Promise<CompactionProfile> => {
-    const profile = await deps.compactionProfiles.get(handle.state.session.compactionProfileID)
+    const profileID = handle.state.session.compactionProfileID
+    if (!profileID) {
+      await handle.append({
+        type: "session.failed",
+        sessionID: handle.id,
+        timestamp: Date.now(),
+        message: COMPACTION_PROFILE_REQUIRED_MESSAGE,
+      })
+      throw new Error(COMPACTION_PROFILE_REQUIRED_MESSAGE)
+    }
+    const profile = await deps.compactionProfiles.get(profileID)
     if (profile) return profile
 
     await handle.append({

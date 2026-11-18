@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { JsonObjectSchema } from "./image.js"
 import { Content } from "./message.js"
+import { ReasoningEffort } from "./model-config.js"
 import { PermissionReply } from "./permission.js"
 import { QuestionAnswer, QuestionPrompt, QuestionSource } from "./question.js"
 import { Session, Todo } from "./session.js"
@@ -55,6 +56,10 @@ const SessionUpdated = z.object({
   type: z.literal("session.updated"),
   title: z.string().optional(),
   usage: Usage.optional(),
+  model: z.string().optional(),
+  modelConfigID: z.string().optional(),
+  compactionProfileID: z.string().optional(),
+  reasoningEffort: ReasoningEffort.optional(),
   /** null 表示取消置顶。 */
   pinnedAt: z.number().int().positive().nullable().optional(),
 })

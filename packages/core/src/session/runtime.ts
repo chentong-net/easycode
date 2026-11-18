@@ -8,6 +8,7 @@ import type { AgentRegistry } from "../agent.js"
 import {
   CODING_COMPACTION_PROFILE_ID,
   COMPACTION_PROFILE_MISSING_MESSAGE,
+  COMPACTION_PROFILE_REQUIRED_MESSAGE,
   type CompactionProfileService,
 } from "../compaction-profile/index.js"
 import type { CoreConfig } from "../config.js"
@@ -289,7 +290,9 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     input: { text: string; content?: JsonObject[]; delivery?: Delivery },
   ) => {
     const handle = await load(sessionID)
-    if (!(await deps.compactionProfiles.get(handle.state.session.compactionProfileID))) {
+    const compactionProfileID = handle.state.session.compactionProfileID
+    if (!compactionProfileID) throw new Error(COMPACTION_PROFILE_REQUIRED_MESSAGE)
+    if (!(await deps.compactionProfiles.get(compactionProfileID))) {
       throw new Error(COMPACTION_PROFILE_MISSING_MESSAGE)
     }
     const text = input.text.trim()

@@ -94,6 +94,12 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
     case "session.updated": {
       const next: Session = { ...state.session }
       if (event.title !== undefined) next.title = event.title
+      if (event.model !== undefined) next.model = event.model
+      if (event.modelConfigID !== undefined) next.modelConfigID = event.modelConfigID
+      if (event.compactionProfileID !== undefined) {
+        next.compactionProfileID = event.compactionProfileID
+      }
+      if (event.reasoningEffort !== undefined) next.reasoningEffort = event.reasoningEffort
       if (event.usage !== undefined) next.usage = event.usage
       if (event.pinnedAt !== undefined) {
         if (event.pinnedAt === null) delete next.pinnedAt

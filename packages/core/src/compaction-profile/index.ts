@@ -17,6 +17,7 @@ import { CODING_COMPACTION_PROFILE_ID, codingCompactionProfile } from "./coding.
 export { CODING_COMPACTION_PROFILE_ID, codingCompactionProfile } from "./coding.js"
 
 export const COMPACTION_PROFILE_DIRECTORY = "compaction-profile"
+export const COMPACTION_PROFILE_REQUIRED_MESSAGE = "请选择压缩配置。"
 export const COMPACTION_PROFILE_MISSING_MESSAGE = "当前会话使用的压缩配置已不存在，无法继续对话。"
 
 export interface CompactionProfileService {
