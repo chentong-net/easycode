@@ -22,6 +22,7 @@ import {
 } from "./image-platform"
 import {
   ModelConfigSettings,
+  type ModelConfigRuntimeMetadata,
   type ModelConfigSettingsHandle,
 } from "./ModelConfigs"
 
@@ -103,13 +104,7 @@ export const SettingsDialog = ({
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback | undefined>()
   const modelConfigRef = useRef<ModelConfigSettingsHandle>(null)
 
-  const handleRuntimeLoaded = useCallback((next: {
-    webSearchProvider?: WebProvider
-    webFetchProvider?: WebProvider
-    webTimeoutMs: number
-    webMaxResponseBytes: number
-    logLevel: RuntimeConfigResponse["logLevel"]
-  }): void => {
+  const handleRuntimeLoaded = useCallback((next: ModelConfigRuntimeMetadata): void => {
     setForm((current) => ({
       ...current,
       webSearchProvider: next.webSearchProvider ?? "",
@@ -120,6 +115,22 @@ export const SettingsDialog = ({
       webMaxResponseBytes: String(next.webMaxResponseBytes),
       logLevel: next.logLevel,
     }))
+    setConfig((current) =>
+      current === undefined
+        ? current
+        : {
+            ...current,
+            webSearchProvider:
+              next.webSearchProvider === "" ? undefined : next.webSearchProvider,
+            hasWebSearchApiKey: next.hasWebSearchApiKey,
+            webFetchProvider:
+              next.webFetchProvider === "" ? undefined : next.webFetchProvider,
+            hasWebFetchApiKey: next.hasWebFetchApiKey,
+            webTimeoutMs: next.webTimeoutMs,
+            webMaxResponseBytes: next.webMaxResponseBytes,
+            logLevel: next.logLevel,
+          },
+    )
     setClear((current) => ({
       ...current,
       webSearchApiKey: false,

@@ -65,6 +65,8 @@ test("TOML 模型配置支持创建、更新、保留或清除密钥以及删除
     }),
   )
   assert.equal(created.config.revision, 1)
+  assert.equal(created.runtime.web.search.apiKey, "")
+  assert.equal(created.runtime.web.fetch.apiKey, "")
   assert.match(
     await readFile(join(directory, "config", `${created.config.id}.toml`), "utf8"),
     /api_key = "secret"/,

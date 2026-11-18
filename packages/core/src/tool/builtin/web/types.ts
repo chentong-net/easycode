@@ -13,7 +13,7 @@ export interface CoreWebCapabilityConfig {
   apiKey: string
 }
 
-/** Core 启动时从 runtime.json 读取的联网配置。 */
+/** Core 启动时从 TOML 模型配置读取的联网设置。 */
 export interface CoreWebConfig {
   search: CoreWebCapabilityConfig
   fetch: CoreWebCapabilityConfig

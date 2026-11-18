@@ -20,22 +20,12 @@ async function* streamTurn(
   request: LLMRequest,
   logger: Logger,
 ): AsyncGenerator<LLMEvent> {
-  if (config.apiKey.trim().length === 0) {
-    throw new LLMError("auth", "模型 API Key 尚未配置，请先在设置中完成模型配置")
-  }
   if (request.model.trim().length === 0) {
     throw new LLMError("invalid_request", "模型 ID 尚未配置，请先在设置中选择或填写模型")
   }
 
   const url = joinUrl(config.baseUrl, "chat/completions")
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    accept: "text/event-stream",
-    authorization: `Bearer ${config.apiKey}`,
-    ...config.headers,
-  }
-  // 部分网关按会话做亲和路由，带上会话标记能显著提升 prompt 缓存命中率
-  if (request.sessionID) headers["x-session-id"] = request.sessionID
+  const headers = buildRequestHeaders(config, request)
 
   const body = buildRequestBody(request)
   logger.debug("发起 provider 请求", {
@@ -73,6 +63,20 @@ async function* streamTurn(
     logger.debug("provider 请求结束", { durationMs: Date.now() - startedAt, chunkCount })
   }
 }
+
+/** 空 API Key 表示本地无鉴权服务，不发送 Authorization。 */
+export const buildRequestHeaders = (
+  config: LLMClientConfig,
+  request: Pick<LLMRequest, "sessionID">,
+): Record<string, string> => ({
+  "content-type": "application/json",
+  accept: "text/event-stream",
+  ...(config.apiKey.trim().length === 0
+    ? {}
+    : { authorization: `Bearer ${config.apiKey}` }),
+  ...config.headers,
+  ...(request.sessionID ? { "x-session-id": request.sessionID } : {}),
+})
 
 /** 发送请求并处理传输层与状态码层面的错误。 */
 const sendRequest = async (

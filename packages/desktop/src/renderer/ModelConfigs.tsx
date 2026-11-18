@@ -47,6 +47,16 @@ export interface ModelConfigRuntimeInput {
   logLevel: ModelConfigUpdateRequest["logLevel"]
 }
 
+export interface ModelConfigRuntimeMetadata {
+  webSearchProvider?: ModelConfigUpdateRequest["webSearchProvider"]
+  hasWebSearchApiKey: boolean
+  webFetchProvider?: ModelConfigUpdateRequest["webFetchProvider"]
+  hasWebFetchApiKey: boolean
+  webTimeoutMs: number
+  webMaxResponseBytes: number
+  logLevel: ModelConfigUpdateRequest["logLevel"]
+}
+
 export interface ModelConfigSettingsHandle {
   saveWithRuntime(input: ModelConfigRuntimeInput): Promise<boolean>
 }
@@ -68,7 +78,7 @@ const EMPTY_FORM: ModelConfigForm = {
 export const ModelConfigSettings = forwardRef<ModelConfigSettingsHandle, {
   client: EasyCodeClient
   onChanged: () => Promise<void>
-  onRuntimeLoaded: (config: ModelConfigResponse) => void
+  onRuntimeLoaded: (config: ModelConfigRuntimeMetadata) => void
 }>(({ client, onChanged, onRuntimeLoaded }, ref) => {
   const [configs, setConfigs] = useState<ModelConfigSummary[]>([])
   const [availableEfforts, setAvailableEfforts] = useState<ReasoningEffort[]>([])
@@ -98,6 +108,7 @@ export const ModelConfigSettings = forwardRef<ModelConfigSettingsHandle, {
           setSelectedID(undefined)
           setConfig(undefined)
           setForm(EMPTY_FORM)
+          onRuntimeLoaded(emptyRuntimeMetadata())
         }
       } catch (cause) {
         if (!controller.signal.aborted) setError(describeError(cause))
@@ -106,7 +117,7 @@ export const ModelConfigSettings = forwardRef<ModelConfigSettingsHandle, {
       }
     })()
     return () => controller.abort()
-  }, [client])
+  }, [client, onRuntimeLoaded])
 
   useEffect(() => {
     if (selectedID === undefined) return
@@ -115,6 +126,7 @@ export const ModelConfigSettings = forwardRef<ModelConfigSettingsHandle, {
     setError(undefined)
     setFeedback(undefined)
     setTest({ phase: "idle" })
+    onRuntimeLoaded(emptyRuntimeMetadata())
     void (async () => {
       try {
         const next = await client.modelConfigs.get(selectedID, controller.signal)
@@ -549,3 +561,13 @@ const secretInput = (
 
 const formatEffort = (effort: ReasoningEffort): string =>
   effort === "none" ? "None" : effort.charAt(0).toUpperCase() + effort.slice(1)
+
+const emptyRuntimeMetadata = (): ModelConfigRuntimeMetadata => ({
+  webSearchProvider: "",
+  hasWebSearchApiKey: false,
+  webFetchProvider: "",
+  hasWebFetchApiKey: false,
+  webTimeoutMs: 30_000,
+  webMaxResponseBytes: 8 * 1024 * 1024,
+  logLevel: "info",
+})

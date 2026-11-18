@@ -103,6 +103,8 @@ log_level = "info"
 
 密钥只保存在配置文件与 Core 进程内，HTTP 配置接口只返回是否已配置。环境变量不会覆盖配置文件中的值。
 
+模型 API Key 可以为空。空 Key 时客户端不会发送 `Authorization` 请求头，因此可直接连接 Ollama 等本地无鉴权服务；联网搜索和网页读取仍分别要求对应 Provider 与 Key。
+
 搜索和抓取分别要求同时配置 Provider 与对应的 API Key；任意一项缺失时，该工具不会注册。系统不会自动选择厂商，也不会复用模型 API Key。
 
 ## 构建与检查
@@ -278,7 +280,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 规则形如 `{ action, resource, effect }`，按顺序求值并取最后一条同时匹配 `action` 与 `resource` 的规则，`effect` 取值为 `allow` / `ask` / `deny`，默认裁决为 `ask`。一次调用涉及多个资源时取最严格的结果。
 
-内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取用户项目中的 `.env`、`.env.*` 以及 `~/easycode/.easycode/config/*.json` 时需要确认，结构化编辑运行或模型配置文件的请求同样需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认允许，配置对应 Provider 与 API Key 即表示接受第三方服务调用。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。这些 `.env` 规则针对被 Agent 操作的项目，与 EasyCode 自身配置无关。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
+内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取用户项目中的 `.env`、`.env.*` 以及 `~/easycode/.easycode/config/*.toml` 时需要确认，结构化编辑运行或模型配置文件的请求同样需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认允许，配置对应 Provider 与 API Key 即表示接受第三方服务调用。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。这些 `.env` 规则针对被 Agent 操作的项目，与 EasyCode 自身配置无关。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
 
 ### 内置工具
 

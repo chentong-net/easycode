@@ -83,19 +83,54 @@ test("中间 JSON 版本迁移到 TOML 并保留模型级别", async () => {
       2,
     ),
   )
+  const modelId = "12345678-1234-4123-8123-123456789abc"
   await writeFile(
-    join(configDirectory, "12345678-1234-4123-8123-123456789abc.json"),
+    join(configDirectory, `${modelId}.json`),
     JSON.stringify({
+      schemaVersion: 1,
+      id: modelId,
+      revision: 3,
       name: "推理模型",
+      baseUrl: "https://json.example.com/v1",
+      model: "reasoning-model",
+      apiKey: "json-key",
+      headers: {},
+      contextWindow: 64000,
+      maxOutputTokens: 8000,
       supportedReasoningEfforts: ["low", "high"],
+      createdAt: 2,
+      updatedAt: 3,
+    }),
+  )
+  const secondId = "abcdef12-1234-4123-8123-123456789abc"
+  await writeFile(
+    join(configDirectory, `${secondId}.json`),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: secondId,
+      revision: 1,
+      name: "第二模型",
+      baseUrl: "http://localhost:11434/v1",
+      model: "ollama-model",
+      apiKey: "",
+      headers: {},
+      contextWindow: 32000,
+      maxOutputTokens: 4000,
+      supportedReasoningEfforts: ["none"],
+      createdAt: 4,
+      updatedAt: 4,
     }),
   )
 
   const configFile = ensureConfigFiles(configDirectory, legacyToml, legacyJson)
-  const stored = readStoredRuntimeConfig(configFile)
+  assert.equal(configFile, join(configDirectory, `${modelId}.toml`))
+  const stored = readStoredRuntimeConfig(join(configDirectory, `${modelId}.toml`))
   assert.equal(stored.configName, "推理模型")
+  assert.equal(stored.model, "reasoning-model")
   assert.deepEqual(stored.supportedReasoningEfforts, ["low", "high"])
   const files = await readdir(configDirectory)
+  assert.equal(files.filter((name) => name.endsWith(".toml")).length, 2)
+  assert.equal(files.includes(`${secondId}.toml`), true)
   assert.equal(files.includes("runtime.json"), false)
   assert.equal(
     files.some((name) => name.startsWith("runtime.json.migrated-") && name.endsWith(".bak")),

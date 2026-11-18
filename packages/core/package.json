@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/compaction-profile/index.test.js dist/config.test.js dist/image/index.test.js dist/llm/protocol.test.js dist/model-config/index.test.js dist/runner/prompt.test.js dist/session/compaction-prompt.test.js dist/session/compaction.test.js dist/session/configuration.test.js dist/session/runtime.test.js",
+    "test": "npm run build && node --test dist/compaction-profile/index.test.js dist/config.test.js dist/image/index.test.js dist/llm/client.test.js dist/llm/protocol.test.js dist/model-config/index.test.js dist/runner/prompt.test.js dist/session/compaction-prompt.test.js dist/session/compaction.test.js dist/session/configuration.test.js dist/session/runtime.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

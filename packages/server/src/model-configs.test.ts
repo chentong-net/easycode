@@ -81,10 +81,14 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
     revision: number
     hasApiKey: boolean
     hasExtraHeaders: boolean
+    hasWebSearchApiKey: boolean
+    hasWebFetchApiKey: boolean
     apiKey?: string
   }
   assert.equal(created.hasApiKey, true)
   assert.equal(created.hasExtraHeaders, true)
+  assert.equal(created.hasWebSearchApiKey, false)
+  assert.equal(created.hasWebFetchApiKey, false)
   assert.equal("apiKey" in created, false)
 
   const updatedResponse = await application.app.inject({

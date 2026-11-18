@@ -7,7 +7,7 @@ import { appendFileSync } from "node:fs"
  *
  * 1. 所有日志写 stderr，绝不写 stdout。CLI 的 stdout 专门用于输出 agent 的回复，
  *    一旦混入日志，管道重定向（`easycode run "..." > out.txt`）就会拿到脏数据。
- * 2. 日志级别由 runtime.json 在启动时配置一次；配置解析完成前使用 info。
+ * 2. 日志级别由当前 TOML 模型配置在启动时设置；配置解析完成前使用 info。
  * 3. 落盘失败绝不影响主流程：日志是观测手段，不是功能。
  */
 
@@ -31,7 +31,7 @@ const LEVEL_WEIGHT: Record<LogLevel, number> = {
 
 let configuredLevel: LogLevel = "info"
 
-/** 应用 runtime.json 中的日志级别。配置保存后需要重启才能改变当前进程。 */
+/** 应用 TOML 配置中的日志级别。配置保存后需要重启才能改变当前进程。 */
 export const setLogLevel = (level: LogLevel): void => {
   configuredLevel = level
 }

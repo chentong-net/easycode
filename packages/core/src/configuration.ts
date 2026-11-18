@@ -106,9 +106,6 @@ export const createConfigurationService = (deps: ConfigurationDeps): Configurati
     const apiKey = input.apiKey === undefined ? current.apiKey : (input.apiKey ?? "")
     const startedAt = Date.now()
 
-    if (apiKey.length === 0) {
-      return { ok: false, latencyMs: 0, model, message: "模型 API Key 尚未配置" }
-    }
     if (model.length === 0) {
       return { ok: false, latencyMs: 0, model, message: "模型 ID 尚未配置" }
     }
@@ -184,7 +181,7 @@ const toView = (configFile: string, config: StoredRuntimeConfig): RuntimeConfigV
   configFile,
   baseUrl: config.baseUrl,
   model: config.model,
-  modelConfigured: config.apiKey.length > 0 && config.model.length > 0,
+  modelConfigured: config.model.length > 0,
   contextWindow: config.contextWindow,
   maxOutputTokens: config.maxOutputTokens,
   ...(config.temperature === undefined ? {} : { temperature: config.temperature }),

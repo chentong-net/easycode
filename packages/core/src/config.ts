@@ -13,6 +13,8 @@ import { join, resolve } from "node:path"
 import { parse, stringify } from "smol-toml"
 import { z } from "zod"
 
+import { ModelConfig } from "@easycode/schema"
+
 import type { LLMClientConfig } from "./llm/types.js"
 import { createLogger, setLogLevel, type LogLevel } from "./log.js"
 import { WEB_PROVIDER_IDS, type CoreWebConfig, type WebProviderID } from "./tool/builtin/web/types.js"
@@ -119,10 +121,10 @@ const ConfigFile = z
 type ConfigFile = z.infer<typeof ConfigFile>
 
 /**
- * 加载固定路径上的 config/runtime.json。
+ * 加载 config 目录下排序后的首份 TOML。
  *
- * 旧版 config.toml 会在首次启动时迁移到 runtime.json，并重命名为可恢复
- * 备份。迁移完成后运行时不再读取 TOML。
+ * 旧版 config.toml 或中间 JSON 会在首次启动时迁移为 `<ID>.toml`，并重命名
+ * 为可恢复备份。
  */
 export const loadCoreConfig = (): CoreConfig => {
   const configFile = ensureConfigFiles()
@@ -133,7 +135,7 @@ export const loadCoreConfig = (): CoreConfig => {
     ...stored,
     configFile,
     dataDir: EASYCODE_STATE_DIR,
-    modelConfigured: stored.apiKey.length > 0 && stored.model.length > 0,
+    modelConfigured: stored.model.length > 0,
   }
 
   logger.info("配置加载完成", {
@@ -234,27 +236,38 @@ export const ensureConfigFiles = (
     return selected
   }
 
-  let stored = defaultStoredConfig()
+  let base = defaultStoredConfig()
   if (existsSync(legacyJson)) {
-    stored = readJsonStoredRuntimeConfig(legacyJson)
+    base = readJsonStoredRuntimeConfig(legacyJson)
   } else if (existsSync(legacyToml)) {
-    stored = readLegacyStoredRuntimeConfig(legacyToml)
+    base = readLegacyStoredRuntimeConfig(legacyToml)
   }
-  const jsonModel = readLegacyJsonModel(configDirectory)
-  if (jsonModel !== undefined) {
-    stored = {
-      ...stored,
-      configName: typeof jsonModel.name === "string" ? jsonModel.name : stored.configName,
-      supportedReasoningEfforts: Array.isArray(jsonModel.supportedReasoningEfforts)
-        ? jsonModel.supportedReasoningEfforts.filter((value): value is string => typeof value === "string")
-        : stored.supportedReasoningEfforts,
+  const legacyModels = readLegacyJsonModels(configDirectory)
+  if (legacyModels.length === 0) {
+    writeTomlFile(
+      configDirectory,
+      randomUUID(),
+      base,
+    )
+  } else {
+    for (const model of legacyModels) {
+      writeTomlFile(configDirectory, model.id, {
+        ...base,
+        baseUrl: model.baseUrl,
+        apiKey: model.apiKey,
+        model: model.model,
+        contextWindow: model.contextWindow,
+        maxOutputTokens: model.maxOutputTokens,
+        ...(model.temperature === undefined ? {} : { temperature: model.temperature }),
+        headers: model.headers,
+        configName: model.name,
+        supportedReasoningEfforts: model.supportedReasoningEfforts,
+        revision: model.revision,
+        createdAt: model.createdAt,
+        updatedAt: model.updatedAt,
+      })
     }
   }
-
-  const id = randomUUID()
-  const target = join(configDirectory, `${id}.toml`)
-  writeFileSync(target, renderStoredRuntimeConfig(stored), { encoding: "utf8", mode: 0o600 })
-  chmodSync(target, 0o600)
 
   const backupSuffix = `.migrated-${Date.now()}.bak`
   for (const legacy of [legacyJson, legacyToml]) {
@@ -273,8 +286,9 @@ export const ensureConfigFiles = (
       logger.warn("旧模型配置已迁移，但无法重命名备份", { file, error })
     }
   }
-  logger.info("已创建首份 TOML 模型配置", { configFile: target })
-  return target
+  const selected = join(configDirectory, tomlFiles(configDirectory)[0] as string)
+  logger.info("已迁移模型配置为 TOML", { configFile: selected, count: tomlFiles(configDirectory).length })
+  return selected
 }
 
 const readLegacyStoredRuntimeConfig = (file: string): StoredRuntimeConfig => {
@@ -315,18 +329,28 @@ const legacyJsonModelFiles = (directory: string): string[] =>
     .filter((name) => name.endsWith(".json") && name !== "runtime.json")
     .sort((left, right) => left.localeCompare(right))
 
-const readLegacyJsonModel = (directory: string): Record<string, unknown> | undefined => {
+const readLegacyJsonModels = (directory: string): ModelConfig[] => {
+  const models: ModelConfig[] = []
   for (const name of legacyJsonModelFiles(directory)) {
     try {
       const value: unknown = JSON.parse(readFileSync(join(directory, name), "utf8"))
-      if (typeof value === "object" && value !== null) {
-        return value as Record<string, unknown>
-      }
+      const parsed = ModelConfig.safeParse(value)
+      if (parsed.success) models.push(parsed.data)
     } catch {
       // 无效的中间版本 JSON 不会阻止 TOML 迁移。
     }
   }
-  return undefined
+  return models
+}
+
+const writeTomlFile = (
+  directory: string,
+  id: string,
+  stored: StoredRuntimeConfig,
+): void => {
+  const file = join(directory, `${id}.toml`)
+  writeFileSync(file, renderStoredRuntimeConfig(stored), { encoding: "utf8", mode: 0o600 })
+  chmodSync(file, 0o600)
 }
 
 const defaultStoredConfig = (): StoredRuntimeConfig => ({
