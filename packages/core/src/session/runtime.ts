@@ -246,6 +246,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       title: input.title?.trim() || DEFAULT_SESSION_TITLE,
       directory,
       agent: agent.id,
+      compactionProfileID: "coding",
       model: deps.config.model,
       createdAt: now,
       updatedAt: now,
