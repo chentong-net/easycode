@@ -2,6 +2,7 @@ import type { EasyCodeClient } from "@easycode/client"
 import { useState } from "react"
 
 import { Chat } from "./Chat"
+import { CompactionProfilesDialog } from "./CompactionProfiles"
 import { SettingsDialog } from "./Settings"
 import { Sidebar } from "./Sidebar"
 import { useEasyCode } from "./store"
@@ -21,17 +22,29 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
   const store = useEasyCode(client, workspace.directory)
   const error = store.error ?? workspace.error
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [compactionProfilesOpen, setCompactionProfilesOpen] = useState(false)
 
   return (
     <>
       <div className="app">
         <div className="app-body">
-          <Sidebar store={store} workspace={workspace} onOpenSettings={() => setSettingsOpen(true)} />
+          <Sidebar
+            store={store}
+            workspace={workspace}
+            onOpenCompactionProfiles={() => setCompactionProfilesOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
           <Chat store={store} workspace={workspace} />
         </div>
       </div>
 
       <SettingsDialog client={client} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <CompactionProfilesDialog
+        client={client}
+        open={compactionProfilesOpen}
+        onClose={() => setCompactionProfilesOpen(false)}
+        onChanged={store.refreshCompactionProfiles}
+      />
 
       {error !== undefined && (
         <div className="error-toast" role="alert">

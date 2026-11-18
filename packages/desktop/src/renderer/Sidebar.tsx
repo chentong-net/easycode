@@ -1,5 +1,6 @@
 import type { Session, Workspace } from "@easycode/schema"
 import {
+  Bot,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -26,10 +27,12 @@ type ContextMenu =
 export const Sidebar = ({
   store,
   workspace,
+  onOpenCompactionProfiles,
   onOpenSettings,
 }: {
   store: EasyCodeStore
   workspace: WorkspaceState
+  onOpenCompactionProfiles: () => void
   onOpenSettings: () => void
 }) => {
   const hasWorkspace = workspace.activeWorkspace !== undefined
@@ -262,6 +265,15 @@ export const Sidebar = ({
     <aside className="sidebar">
       <div className="sidebar-brand">
         <span className="brand-name">EasyCode</span>
+        <button
+          type="button"
+          className="settings-button"
+          onClick={onOpenCompactionProfiles}
+          aria-label="打开压缩配置管理"
+          title="压缩配置管理"
+        >
+          <Bot size={16} strokeWidth={1.8} />
+        </button>
         <button
           type="button"
           className="settings-button"

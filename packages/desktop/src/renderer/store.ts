@@ -1,5 +1,8 @@
 import type { EasyCodeClient } from "@easycode/client"
-import type { BulkDeleteSessionsResponse } from "@easycode/protocol"
+import type {
+  BulkDeleteSessionsResponse,
+  CompactionProfileSummary,
+} from "@easycode/protocol"
 import {
   isDurableEvent,
   type Event,
@@ -77,6 +80,14 @@ export interface EasyCodeStore {
   contextWindow: number | undefined
   /** 单轮回复的输出预留，用于算出「可用额度」 */
   maxOutputTokens: number | undefined
+  /** 当前可选择的压缩配置列表。 */
+  compactionProfiles: CompactionProfileSummary[]
+  /** 新会话当前选择；会话创建后改用 currentSession 中的持久值。 */
+  pendingCompactionProfileID: string
+  /** 当前应显示的压缩配置，已有会话始终来自后端会话元信息。 */
+  compactionProfileID: string
+  /** 首次发送、创建会话后立即锁定。 */
+  compactionProfileLocked: boolean
 
   selectSession(sessionID: string): void
   /** 进入未持久化的新会话页面；首次发送时才创建会话。 */
@@ -94,6 +105,8 @@ export interface EasyCodeStore {
   replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
   replyQuestion(requestID: string, answers: QuestionAnswer[]): Promise<void>
   refreshSessions(): void
+  setPendingCompactionProfileID(profileID: string): void
+  refreshCompactionProfiles(signal?: AbortSignal): Promise<void>
   clearError(): void
 }
 
@@ -118,6 +131,8 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const keepNoSelection = useRef(true)
   const [contextWindow, setContextWindow] = useState<number | undefined>()
   const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>()
+  const [compactionProfiles, setCompactionProfiles] = useState<CompactionProfileSummary[]>([])
+  const [pendingCompactionProfileID, setPendingCompactionProfileIDState] = useState("coding")
 
   /** 只保留当前工作目录下的会话。切换到别的目录后，列表应当完全换一批。 */
   const scopedSessions = useMemo(
@@ -145,6 +160,16 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     }, 150)
   }, [])
 
+  const refreshCompactionProfiles = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    try {
+      const profiles = await client.compactionProfiles.list(signal)
+      if (signal?.aborted) return
+      setCompactionProfiles(profiles)
+    } catch (cause) {
+      if (!signal?.aborted) setError(describeError(cause))
+    }
+  }, [client])
+
   useEffect(
     () => () => {
       if (listRefreshTimer.current !== undefined) clearTimeout(listRefreshTimer.current)
@@ -158,6 +183,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
 
   useEffect(() => {
     const controller = new AbortController()
+    void refreshCompactionProfiles(controller.signal)
     void (async () => {
       try {
         // 上下文窗口与输出预留都是模型的固有属性，进程生命周期内不会变，拉一次即可
@@ -171,7 +197,16 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       }
     })()
     return () => controller.abort()
-  }, [client])
+  }, [client, refreshCompactionProfiles])
+
+  useEffect(() => {
+    if (
+      compactionProfiles.length > 0 &&
+      !compactionProfiles.some((profile) => profile.id === pendingCompactionProfileID)
+    ) {
+      setPendingCompactionProfileIDState("coding")
+    }
+  }, [compactionProfiles, pendingCompactionProfileID])
 
   /* ---------------------------------------------------------------------- */
   /* 会话列表                                                                */
@@ -352,6 +387,10 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           }
           return
 
+        case "session.failed":
+          setError(event.message)
+          return
+
         case "compaction.started":
           activeCompactionID = event.compactionID
           setCompaction({ phase: "running", startedAt: event.timestamp })
@@ -453,6 +492,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setRunning(false)
     setCompaction({ phase: "idle" })
     setTask(undefined)
+    setPendingCompactionProfileIDState("coding")
   }, [])
 
   const pinSession = useCallback(
@@ -554,7 +594,10 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       try {
         let sessionID = activeSessionID
         if (sessionID === undefined) {
-          const session = await client.sessions.create({ directory: workspace })
+          const session = await client.sessions.create({
+            directory: workspace,
+            compactionProfileID: pendingCompactionProfileID,
+          })
           keepNoSelection.current = false
           setSessions((previous) => sortSessions([session, ...previous]))
           setCurrentSession(session)
@@ -571,7 +614,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
         return false
       }
     },
-    [activeSessionID, client.sessions, workspace],
+    [activeSessionID, client.sessions, pendingCompactionProfileID, workspace],
   )
 
   const interrupt = useCallback(async () => {
@@ -615,6 +658,10 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
 
   const clearError = useCallback(() => setError(undefined), [])
   const refreshSessions = useCallback(() => setSessionListToken((token) => token + 1), [])
+  const setPendingCompactionProfileID = useCallback(
+    (profileID: string) => setPendingCompactionProfileIDState(profileID),
+    [],
+  )
 
   /* ---------------------------------------------------------------------- */
   /* 派生数据                                                                */
@@ -630,6 +677,10 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   )
 
   const mergedMessages = useMemo(() => mergeDeltas(visibleMessages, deltas), [visibleMessages, deltas])
+  const activeSessionSummary = useMemo(
+    () => scopedSessions.find((session) => session.id === activeSessionID),
+    [activeSessionID, scopedSessions],
+  )
 
   return {
     allSessions: sessions,
@@ -647,6 +698,13 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     error,
     contextWindow,
     maxOutputTokens,
+    compactionProfiles,
+    pendingCompactionProfileID,
+    compactionProfileID:
+      currentSession?.compactionProfileID ??
+      activeSessionSummary?.compactionProfileID ??
+      pendingCompactionProfileID,
+    compactionProfileLocked: activeSessionID !== undefined,
     selectSession,
     startNewSession,
     renameSession,
@@ -659,6 +717,8 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     replyPermission,
     replyQuestion,
     refreshSessions,
+    setPendingCompactionProfileID,
+    refreshCompactionProfiles,
     clearError,
   }
 }

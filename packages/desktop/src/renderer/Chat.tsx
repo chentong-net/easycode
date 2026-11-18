@@ -372,6 +372,10 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
         {store.pendingQuestions.length === 0 && (
           <Composer
             running={store.running}
+            compactionProfiles={store.compactionProfiles}
+            compactionProfileID={store.compactionProfileID}
+            compactionProfileLocked={store.compactionProfileLocked}
+            onCompactionProfileChange={store.setPendingCompactionProfileID}
             onPrepareImage={store.prepareImage}
             onSend={async (text, imageContents) => {
               stickToBottom.current = true
@@ -393,6 +397,10 @@ const NewConversation = ({ store }: { store: EasyCodeStore }) => (
     <div className="composer-area">
       <Composer
         running={false}
+        compactionProfiles={store.compactionProfiles}
+        compactionProfileID={store.compactionProfileID}
+        compactionProfileLocked={store.compactionProfileLocked}
+        onCompactionProfileChange={store.setPendingCompactionProfileID}
         onPrepareImage={store.prepareImage}
         onSend={store.send}
         onStop={store.interrupt}

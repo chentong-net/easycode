@@ -1,5 +1,6 @@
 import type { JsonObject } from "@easycode/schema"
-import { ArrowUp, Image as ImageIcon, LoaderCircle, Plus, Square, X } from "lucide-react"
+import type { CompactionProfileSummary } from "@easycode/protocol"
+import { ArrowUp, Bot, Image as ImageIcon, LoaderCircle, Plus, Square, X } from "lucide-react"
 import {
   useEffect,
   useRef,
@@ -34,6 +35,10 @@ interface ImageSelection {
 export const Composer = ({
   running,
   inputDisabled = false,
+  compactionProfiles,
+  compactionProfileID,
+  compactionProfileLocked,
+  onCompactionProfileChange,
   onPrepareImage,
   onSend,
   onStop,
@@ -41,6 +46,10 @@ export const Composer = ({
   running: boolean
   /** 有必须通过专用卡片回答的问题时暂停普通输入。 */
   inputDisabled?: boolean
+  compactionProfiles: CompactionProfileSummary[]
+  compactionProfileID: string
+  compactionProfileLocked: boolean
+  onCompactionProfileChange: (profileID: string) => void
   onPrepareImage: (path: string, signal?: AbortSignal) => Promise<JsonObject>
   onSend: (text: string, imageContents: JsonObject[]) => Promise<boolean>
   onStop: () => Promise<void>
@@ -187,6 +196,11 @@ export const Composer = ({
   const uploading = images.some((item) => item.phase === "uploading")
   const allImagesReady = images.every((item) => item.phase === "ready")
   const hasReadyImage = images.some((item) => item.phase === "ready")
+  const selectedProfile = compactionProfiles.find((profile) => profile.id === compactionProfileID)
+  const profileOptions = compactionProfiles.length
+    ? compactionProfiles
+    : [fallbackCodingProfile()]
+  const profileMissing = selectedProfile === undefined && compactionProfileID !== "coding"
   const canSend =
     (draft.trim().length > 0 || hasReadyImage) &&
     allImagesReady &&
@@ -259,6 +273,25 @@ export const Composer = ({
         </button>
 
         <div className="composer-actions">
+          <label className="composer-profile" title={profileTitle(compactionProfileLocked, profileMissing)}>
+            <Bot size={14} strokeWidth={ICON_STROKE} aria-hidden />
+            <select
+              value={compactionProfileID}
+              onChange={(event) => onCompactionProfileChange(event.target.value)}
+              disabled={compactionProfileLocked || submitting || inputDisabled}
+              aria-label="压缩配置"
+            >
+              {profileMissing && (
+                <option value={compactionProfileID}>压缩配置已丢失</option>
+              )}
+              {profileOptions.map((profile) => (
+                <option value={profile.id} key={profile.id}>
+                  {profile.name}
+                  {profile.builtIn ? "（默认）" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
           {running && (
             <button
               type="button"
@@ -283,4 +316,20 @@ export const Composer = ({
       </div>
     </form>
   )
+}
+
+const fallbackCodingProfile = (): CompactionProfileSummary => ({
+  id: "coding",
+  name: "Coding",
+  description: "默认编程压缩配置",
+  revision: 1,
+  builtIn: true,
+  createdAt: 0,
+  updatedAt: 0,
+})
+
+const profileTitle = (locked: boolean, missing: boolean): string => {
+  if (missing) return "当前会话使用的压缩配置已丢失"
+  if (locked) return "会话创建后不能更换压缩配置；如需更换请新建会话"
+  return "选择新会话使用的压缩配置"
 }
