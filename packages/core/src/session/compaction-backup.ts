@@ -28,6 +28,8 @@ export interface PrepareCompactionBackupInput {
   sessionID: string
   reason: CompactionBackupReason
   model: string
+  compactionProfileID: string
+  compactionProfileRevision: number
   baselineSeq: number
   system: string[]
   messages: LLMMessage[]
@@ -98,6 +100,8 @@ export const createCompactionBackupStore = (
           sessionID: input.sessionID,
           triggerReason: input.reason,
           model: input.model,
+          compactionProfileID: input.compactionProfileID,
+          compactionProfileRevision: input.compactionProfileRevision,
           baselineSeq: input.baselineSeq,
           beforeTokens: input.beforeTokens,
           budget: input.budget,

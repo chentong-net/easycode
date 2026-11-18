@@ -1,4 +1,8 @@
 import { createAgentRegistry, type AgentRegistry } from "./agent.js"
+import {
+  createCompactionProfileService,
+  type CompactionProfileService,
+} from "./compaction-profile/index.js"
 import { loadCoreConfig, toLLMClientConfig, type CoreConfig } from "./config.js"
 import { createConfigurationService, type ConfigurationService } from "./configuration.js"
 import { createEventHub, type EventHub } from "./events.js"
@@ -38,6 +42,7 @@ export interface Core {
   store: SessionStore
   hub: EventHub
   agents: AgentRegistry
+  compactionProfiles: CompactionProfileService
   configuration: ConfigurationService
   images: ImageServiceRegistry
   sessions: SessionManager
@@ -67,6 +72,10 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   setLogLevel(config.logLevel)
 
   const agents = createAgentRegistry()
+  const compactionProfiles = createCompactionProfileService({
+    dataDir: config.dataDir,
+    logger: logger.child("compaction-profile"),
+  })
   const configuration = createConfigurationService({ config })
   const images = createImageServiceRegistry({
     baseUrl: config.baseUrl,
@@ -109,6 +118,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     permissions,
     questions,
     compaction,
+    compactionProfiles,
     context,
     hub,
     logger: logger.child("runner"),
@@ -129,6 +139,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     store,
     hub,
     agents,
+    compactionProfiles,
     configuration,
     images,
     sessions,

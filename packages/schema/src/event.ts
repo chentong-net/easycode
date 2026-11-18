@@ -211,6 +211,9 @@ const CompactionStarted = z.object({
   compactionID: z.string(),
   reason: z.enum(["automatic", "overflow"]),
   beforeTokens: z.number().int().nonnegative(),
+  /** 本次压缩捕获的配置身份，旧事件没有该字段。 */
+  compactionProfileID: z.string().optional(),
+  compactionProfileRevision: z.number().int().positive().optional(),
 })
 
 /** compaction（压缩）失败：没有生成新 checkpoint，旧历史保持不变。 */
@@ -234,6 +237,8 @@ const CompactionEnded = z.object({
   afterTokens: z.number().int().nonnegative().optional(),
   attempts: z.number().int().positive().optional(),
   usedFallback: z.boolean().optional(),
+  compactionProfileID: z.string().optional(),
+  compactionProfileRevision: z.number().int().positive().optional(),
 })
 
 /**
