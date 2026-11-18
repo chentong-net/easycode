@@ -1,6 +1,6 @@
 # EasyCode
 
-EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。联网与日志配置保存在 `~/easycode/.easycode/config/runtime.json`；模型连接与思考强度保存在独立模型配置中，上下文压缩提示词通过独立的「压缩配置」管理。
+EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。模型、API Key、联网与日志配置保存在 `~/easycode/.easycode/config/<ID>.toml`；上下文压缩提示词通过独立的「压缩配置」管理。
 
 术语说明：本文保留 `epoch`、`baseline`、`checkpoint`、`snapshot`、`compaction` 的原始英文，并在首次出现时用括号标注中文提示。`epoch` 指一次冻结上下文从建立到重建的周期，不是模型训练中的 epoch，也不是 Unix 时间起点。
 
@@ -54,9 +54,9 @@ packages/
 npm install
 ```
 
-首次启动会自动创建 `~/easycode/.easycode/config/runtime.json`。可以双击桌面端后通过「运行配置」填写，也可以直接编辑该 JSON 文件；联网与日志设置保存后重启应用生效。
+首次启动会自动创建 `~/easycode/.easycode/config/<ID>.toml`。可以双击桌面端后通过「运行配置」填写，也可以直接编辑对应 TOML 文件；联网与日志设置保存后重启应用生效。
 
-设置页的「模型配置」以列表展示多个模型。每项独立保存接口地址、模型 ID、API Key、上下文窗口、输出上限、温度、附加请求头和多个支持的 reasoning level。不存在 `runtime.json` 且检测到旧版 `config.toml` 时，会自动迁移模型字段和运行设置，并把旧文件重命名为带时间戳的 `.bak`；之后运行时不再读取 TOML。
+设置页的「模型配置」以 ID 为文件名展示多个 TOML。每项独立保存接口地址、模型 ID、API Key、上下文窗口、输出上限、温度、附加请求头、联网配置、日志和多个支持的 reasoning level。设置页底部只有一个「保存配置」按钮，一次保存当前选中的完整 TOML。
 
 Reasoning Level 由后端提供，当前包括 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`。模型配置一个 level 都不选时，请求不会发送 `reasoning_effort`，使用模型自身默认行为；选择了 `none` 等具体值时，正常会话、标题生成和所有 Compaction 摘要请求都会复用该值。
 
@@ -98,8 +98,7 @@ log_level = "info"
 
 - EasyCode 根目录：`~/easycode`
 - 内部状态目录：`~/easycode/.easycode`
-- 运行配置：`~/easycode/.easycode/config/runtime.json`
-- 模型配置：`~/easycode/.easycode/config/<模型配置ID>.json`
+- 模型配置文件：`~/easycode/.easycode/config/<模型配置ID>.toml`
 - 会话、快照、日志和工具输出：`~/easycode/.easycode/`
 
 密钥只保存在配置文件与 Core 进程内，HTTP 配置接口只返回是否已配置。环境变量不会覆盖配置文件中的值。
@@ -236,7 +235,7 @@ npm run package --workspace @easycode/desktop
 
 服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，工作区、会话、消息、工具调用均经 HTTP 接口完成。窗口标题栏与侧边栏、会话标题栏合并，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
 
-开发模式与打包后的桌面端都读取同一个固定运行配置 `~/easycode/.easycode/config/runtime.json`。
+开发模式与打包后的桌面端都从 `~/easycode/.easycode/config/` 读取多份 TOML 配置。
 
 ## 运行机制
 
@@ -352,8 +351,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | POST | `/api/compaction-profiles` | 新建并保存用户压缩配置 |
 | PUT | `/api/compaction-profiles/{id}` | 更新用户压缩配置并增加 revision |
 | DELETE | `/api/compaction-profiles/{id}` | 删除用户压缩配置；不检查会话引用 |
-| GET | `/api/config` | 可安全展示的 JSON 运行配置；密钥只返回是否已配置 |
-| PUT | `/api/config` | 保存联网和日志配置到固定 `config/runtime.json` |
+| GET | `/api/config` | 可安全展示的首份模型配置；密钥只返回是否已配置 |
+| PUT | `/api/config` | 兼容接口；更新首份 TOML 的联网和日志字段 |
 | POST | `/api/config/test` | 使用当前表单值发送一次最小模型请求，验证连接 |
 | GET | `/api/workspaces` | 工作区列表 |
 | POST | `/api/workspaces` | 添加工作区，请求体为 `{ directory }` |
@@ -384,8 +383,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 ```
 ~/easycode/.easycode/
-  config/runtime.json               联网与日志运行配置
-  config/<模型配置ID>.json          独立模型连接与 reasoning levels
+  config/<模型配置ID>.toml          完整模型、联网、日志与 reasoning levels
   workspaces.json                   工作区名称与目录注册表
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
@@ -413,7 +411,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 ## 当前实现范围
 
 - 单个内置 agent：`build`，每 30 步进入一次续行检查点，默认不设置固定任务上限
-- 旧版 `config.toml` 只作为一次性迁移来源；运行时固定读取 `config/runtime.json`
+- 旧版 `config.toml` 和中间 JSON 版本只作为一次性迁移来源；运行时读取 `config/<ID>.toml`
 - 会话实际使用的模型来自独立模型配置列表，配置保存后热加载
 - 模型配置支持多个 reasoning level；空列表不发送 `reasoning_effort`，非空时由用户为会话选择
 - 新旧会话都持久化 `modelConfigID`、`compactionProfileID` 和可选 `reasoningEffort`，重新选择时更新
