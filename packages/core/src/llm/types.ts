@@ -79,7 +79,7 @@ export interface LLMClient {
   stream(request: LLMRequest): AsyncIterable<LLMEvent>
 }
 
-/** 客户端运行所需的连接配置，来源于固定 config.toml。 */
+/** 客户端运行所需的连接配置，来源于模型配置 JSON。 */
 export interface LLMClientConfig {
   baseUrl: string
   apiKey: string

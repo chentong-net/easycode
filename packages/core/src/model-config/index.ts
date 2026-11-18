@@ -61,7 +61,7 @@ export interface ModelConfigServiceDeps {
 /**
  * 文件型模型配置服务。
  *
- * 首次使用时从现有 config.toml 的模型字段迁移一份配置。之后每次读取都直接
+ * 首次使用时从 runtime.json 的模型字段迁移一份配置。之后每次读取都直接
  * 访问当前文件，因此设置页保存后无需重启即可生效。
  */
 export const createModelConfigService = (deps: ModelConfigServiceDeps): ModelConfigService => {
@@ -144,7 +144,12 @@ export const createModelConfigService = (deps: ModelConfigServiceDeps): ModelCon
     return (
       await Promise.all(
         entries
-          .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+          .filter(
+            (entry) =>
+              entry.isFile() &&
+              entry.name.endsWith(".json") &&
+              entry.name !== "runtime.json",
+          )
           .map((entry) => readCustom(entry.name.slice(0, -".json".length))),
       )
     ).filter((config): config is ModelConfig => config !== undefined)

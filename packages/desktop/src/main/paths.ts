@@ -18,7 +18,7 @@ export interface MainPaths {
   rendererDir: string
   /** 固定内部状态目录。 */
   dataDir: string
-  /** 固定 TOML 配置文件位置。 */
+  /** 固定 JSON 运行配置位置。 */
   configFile: string
   /** 日志文件位置 */
   logFile: string
@@ -42,7 +42,7 @@ export const resolveMainPaths = (): MainPaths => {
     rendererDir: join(distDir, "renderer"),
 
     dataDir,
-    configFile: join(dataDir, "config.toml"),
+    configFile: join(dataDir, "config", "runtime.json"),
     logFile: join(dataDir, "logs", "easycode.log"),
     readyFile: join(app.getPath("temp"), `easycode-ready-${process.pid}.json`),
   }

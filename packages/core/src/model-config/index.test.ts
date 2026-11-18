@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, before, test } from "node:test"
@@ -26,6 +26,9 @@ after(async () => {
 })
 
 test("首次使用从运行配置迁移模型且默认不发送 reasoning_effort", async () => {
+  const configDirectory = join(directory, "config")
+  await mkdir(configDirectory, { recursive: true })
+  await writeFile(join(configDirectory, "runtime.json"), "{}\n")
   const service = createModelConfigService({
     dataDir: directory,
     seed: seedConfig(),

@@ -1,7 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs"
 import { dirname, join, resolve } from "node:path"
 
-import { parse, stringify } from "smol-toml"
+import { parse } from "smol-toml"
 import { z } from "zod"
 
 import type { LLMClientConfig } from "./llm/types.js"
@@ -16,7 +23,9 @@ export const EASYCODE_HOME_DIR = resolve(expandHome("~/easycode"))
 /** 应用内部状态目录：会话、工具输出、日志与配置文件都在这里。 */
 export const EASYCODE_STATE_DIR = join(EASYCODE_HOME_DIR, ".easycode")
 /** 唯一的应用运行配置文件。 */
-export const EASYCODE_CONFIG_FILE = join(EASYCODE_STATE_DIR, "config.toml")
+export const EASYCODE_CONFIG_FILE = join(EASYCODE_STATE_DIR, "config", "runtime.json")
+/** 旧版 TOML 配置，只用于一次性迁移。 */
+export const LEGACY_EASYCODE_CONFIG_FILE = join(EASYCODE_STATE_DIR, "config.toml")
 
 export const DEFAULT_BASE_URL = "https://api.openai.com/v1"
 export const DEFAULT_CONTEXT_WINDOW = 128_000
@@ -92,10 +101,10 @@ const ConfigFile = z
 type ConfigFile = z.infer<typeof ConfigFile>
 
 /**
- * 加载固定路径上的 config.toml。
+ * 加载固定路径上的 config/runtime.json。
  *
- * 文件不存在时会创建一份默认配置；配置不合法时直接报错，避免静默使用
- * 一半旧值、一半默认值。模型凭据缺失不会阻止 Core 启动，桌面端仍能打开设置页。
+ * 旧版 config.toml 会在首次启动时迁移到 runtime.json，并重命名为可恢复
+ * 备份。迁移完成后运行时不再读取 TOML。
  */
 export const loadCoreConfig = (): CoreConfig => {
   ensureConfigFile()
@@ -130,7 +139,7 @@ export const loadCoreConfig = (): CoreConfig => {
 export const readStoredRuntimeConfig = (file: string): StoredRuntimeConfig => {
   let raw: unknown
   try {
-    raw = parse(readFileSync(file, "utf8"))
+    raw = JSON.parse(readFileSync(file, "utf8"))
   } catch (error) {
     throw new Error(`无法解析配置文件：${file}`, { cause: error })
   }
@@ -162,20 +171,13 @@ export const renderStoredRuntimeConfig = (config: StoredRuntimeConfig): string =
   if (search !== undefined) web.search = search
   if (fetch !== undefined) web.fetch = fetch
 
-  const content = stringify({
+  const content = {
     model,
     web,
     runtime: { log_level: config.logLevel },
-  })
+  }
 
-  return [
-    "# EasyCode 运行配置",
-    "# 配置文件固定为 ~/easycode/.easycode/config.toml",
-    "# 密钥仅保存在本机；环境变量不会覆盖这些值。",
-    "",
-    content.trimEnd(),
-    "",
-  ].join("\n")
+  return `${JSON.stringify(content, null, 2)}\n`
 }
 
 /** 从配置中取出 LLM 客户端需要的连接信息。 */
@@ -189,15 +191,48 @@ export const toLLMClientConfig = (config: CoreConfig): LLMClientConfig => ({
 export const dataDirExists = (config: CoreConfig): boolean => existsSync(config.dataDir)
 
 const ensureConfigFile = (): void => {
-  mkdirSync(dirname(EASYCODE_CONFIG_FILE), { recursive: true })
-  if (!existsSync(EASYCODE_CONFIG_FILE)) {
+  ensureRuntimeConfigFile(EASYCODE_CONFIG_FILE, LEGACY_EASYCODE_CONFIG_FILE)
+}
+
+export const ensureRuntimeConfigFile = (
+  runtimeFile: string,
+  legacyFile: string,
+): void => {
+  mkdirSync(dirname(runtimeFile), { recursive: true })
+  if (!existsSync(runtimeFile)) {
+    const stored = existsSync(legacyFile)
+      ? readLegacyStoredRuntimeConfig(legacyFile)
+      : defaultStoredConfig()
     writeFileSync(
-      EASYCODE_CONFIG_FILE,
-      renderStoredRuntimeConfig(defaultStoredConfig()),
+      runtimeFile,
+      renderStoredRuntimeConfig(stored),
       { encoding: "utf8", mode: 0o600 },
     )
+    if (existsSync(legacyFile)) {
+      const backup = `${legacyFile}.migrated-${Date.now()}.bak`
+      try {
+        renameSync(legacyFile, backup)
+        logger.info("已迁移旧版 TOML 配置", { backup, configFile: runtimeFile })
+      } catch (error) {
+        logger.warn("旧版 TOML 配置已完成迁移，但无法重命名备份", { error })
+      }
+    }
   }
-  chmodSync(EASYCODE_CONFIG_FILE, 0o600)
+  chmodSync(runtimeFile, 0o600)
+}
+
+const readLegacyStoredRuntimeConfig = (file: string): StoredRuntimeConfig => {
+  let raw: unknown
+  try {
+    raw = parse(readFileSync(file, "utf8"))
+  } catch (error) {
+    throw new Error(`无法解析旧版配置文件：${file}`, { cause: error })
+  }
+  const parsed = ConfigFile.safeParse(raw)
+  if (!parsed.success) {
+    throw new Error(`旧版配置文件结构不符合预期：${file}\n${parsed.error.message}`)
+  }
+  return fromConfigFile(parsed.data)
 }
 
 const defaultStoredConfig = (): StoredRuntimeConfig => ({

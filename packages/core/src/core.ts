@@ -63,7 +63,7 @@ export interface CreateCoreOptions {
    * 直接传入已加载好的配置。
    *
    * 桌面端与 CLI 都会提前加载配置（需要据此决定数据目录、日志文件位置），
-   * 再传进来可以避免重复解析 config.toml 与重复打印「配置加载完成」日志。
+   * 再传进来可以避免重复解析 runtime.json 与重复打印「配置加载完成」日志。
    */
   config?: CoreConfig
   logger?: Logger

@@ -69,8 +69,8 @@ const BUILTIN_AGENTS: Agent[] = [
       { action: "read", resource: "*.env", effect: "ask" },
       { action: "read", resource: "*.env.*", effect: "ask" },
       // 应用配置包含模型与联网密钥，结构化文件工具读写前必须确认
-      { action: "read", resource: "*.easycode/config.toml", effect: "ask" },
-      { action: "edit", resource: "*.easycode/config.toml", effect: "ask" },
+      { action: "read", resource: "*.easycode/config/*.json", effect: "ask" },
+      { action: "edit", resource: "*.easycode/config/*.json", effect: "ask" },
       // 破坏性命令需要确认
       { action: "bash", resource: "*rm -rf*", effect: "ask" },
       { action: "bash", resource: "*sudo *", effect: "ask" },
