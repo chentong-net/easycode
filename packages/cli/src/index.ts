@@ -113,7 +113,13 @@ const resolveSession = async (core: Core, args: ParsedArgs, io: { write(text: st
   }
 
   const directory = readFlagString(args, "dir") ?? DEFAULT_WORKSPACE_DIRECTORY
-  const session = await core.sessions.create({ directory })
+  const modelConfig = await core.modelConfigs.first()
+  const reasoningEffort = modelConfig.supportedReasoningEfforts[0]
+  const session = await core.sessions.create({
+    directory,
+    modelConfigID: modelConfig.id,
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+  })
   io.write(`会话 ${session.id}\n工作目录 ${session.directory}\n\n`)
   return session.id
 }

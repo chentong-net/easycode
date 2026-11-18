@@ -89,6 +89,7 @@ test("摘要请求使用会话配置并用配置标题校验结果", async () =>
   const result = await manager.compactAfterOverflow({
     handle,
     profile,
+    reasoningEffort: "high",
     baselineSeq: 0,
     system: ["main-system"],
     messages: [],
@@ -97,6 +98,7 @@ test("摘要请求使用会话配置并用配置标题校验结果", async () =>
 
   assert.equal(result.status, "completed")
   assert.equal(requests.length, 1)
+  assert.equal(requests[0]!.reasoningEffort, "high")
   assert.match(requests[0]!.system.join("\n"), /整理小说创作记忆/)
   assert.match(requests[0]!.system.join("\n"), /## 人物状态/)
   const user = String((requests[0]!.messages[0] as { content: Array<{ text?: string }> }).content[0]?.text)
