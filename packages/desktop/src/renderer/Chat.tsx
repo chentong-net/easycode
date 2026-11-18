@@ -374,8 +374,15 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
             running={store.running}
             compactionProfiles={store.compactionProfiles}
             compactionProfileID={store.compactionProfileID}
-            compactionProfileLocked={store.compactionProfileLocked}
+            modelConfigs={store.modelConfigs}
+            modelConfigID={store.modelConfigID}
+            availableReasoningEfforts={store.availableReasoningEfforts}
+            reasoningEffort={store.reasoningEffort}
+            configurationLocked={store.configurationLocked}
+            configurationComplete={store.configurationComplete}
             onCompactionProfileChange={store.setPendingCompactionProfileID}
+            onModelConfigChange={store.setModelConfigID}
+            onReasoningEffortChange={store.setReasoningEffort}
             onPrepareImage={store.prepareImage}
             onSend={async (text, imageContents) => {
               stickToBottom.current = true
@@ -399,8 +406,15 @@ const NewConversation = ({ store }: { store: EasyCodeStore }) => (
         running={false}
         compactionProfiles={store.compactionProfiles}
         compactionProfileID={store.compactionProfileID}
-        compactionProfileLocked={store.compactionProfileLocked}
+        modelConfigs={store.modelConfigs}
+        modelConfigID={store.modelConfigID}
+        availableReasoningEfforts={store.availableReasoningEfforts}
+        reasoningEffort={store.reasoningEffort}
+        configurationLocked={store.configurationLocked}
+        configurationComplete={store.configurationComplete}
         onCompactionProfileChange={store.setPendingCompactionProfileID}
+        onModelConfigChange={store.setModelConfigID}
+        onReasoningEffortChange={store.setReasoningEffort}
         onPrepareImage={store.prepareImage}
         onSend={store.send}
         onStop={store.interrupt}

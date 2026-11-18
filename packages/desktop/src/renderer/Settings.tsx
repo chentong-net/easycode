@@ -5,7 +5,7 @@ import {
   RuntimeConfigUpdateRequest,
   type WebProvider,
 } from "@easycode/protocol"
-import { AlertCircle, Check, LoaderCircle, RotateCw, X } from "lucide-react"
+import { RotateCw, X } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
 
 import { hasHost, restartApp } from "./bridge"
@@ -15,6 +15,7 @@ import {
   readImagePlatform,
   saveImagePlatform,
 } from "./image-platform"
+import { ModelConfigSettings } from "./ModelConfigs"
 
 interface ConfigForm {
   baseUrl: string
@@ -39,12 +40,6 @@ interface ClearState {
   webSearchApiKey: boolean
   webFetchApiKey: boolean
 }
-
-type ConnectionTestState =
-  | { phase: "idle" }
-  | { phase: "testing" }
-  | { phase: "success"; latencyMs: number }
-  | { phase: "error"; message: string }
 
 interface SaveFeedback {
   tone: "success" | "error"
@@ -79,10 +74,12 @@ export const SettingsDialog = ({
   client,
   open,
   onClose,
+  onModelConfigsChanged,
 }: {
   client: EasyCodeClient
   open: boolean
   onClose: () => void
+  onModelConfigsChanged: () => Promise<void>
 }) => {
   const [config, setConfig] = useState<RuntimeConfigResponse | undefined>()
   const [form, setForm] = useState<ConfigForm>(EMPTY_FORM)
@@ -96,14 +93,12 @@ export const SettingsDialog = ({
   const [imagePlatform, setImagePlatform] = useState(base64Platform.platform)
   const [imagePlatformsError, setImagePlatformsError] = useState<string | undefined>()
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback | undefined>()
-  const [connectionTest, setConnectionTest] = useState<ConnectionTestState>({ phase: "idle" })
 
   useEffect(() => {
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
     setSaved(false)
-    setConnectionTest({ phase: "idle" })
     setLoadError(undefined)
     setImagePlatforms([base64Platform])
     setImagePlatform(readImagePlatform() ?? base64Platform.platform)
@@ -168,7 +163,6 @@ export const SettingsDialog = ({
     setSaved(false)
     setSaveFeedback(undefined)
     setLoadError(undefined)
-    setConnectionTest({ phase: "idle" })
     setForm((current) => ({ ...current, [key]: value }))
   }
 
@@ -179,7 +173,6 @@ export const SettingsDialog = ({
     setSaved(false)
     setSaveFeedback(undefined)
     setLoadError(undefined)
-    setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: false }))
     setForm((current) => ({ ...current, [field]: value }))
   }
@@ -188,7 +181,6 @@ export const SettingsDialog = ({
     setSaved(false)
     setSaveFeedback(undefined)
     setLoadError(undefined)
-    setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: !current[field] }))
     setForm((current) => ({ ...current, [field]: "" }))
   }
@@ -248,38 +240,6 @@ export const SettingsDialog = ({
     }
   }
 
-  const testConnection = async (): Promise<void> => {
-    if (connectionTest.phase === "testing") return
-    setLoadError(undefined)
-    setSaveFeedback(undefined)
-    setConnectionTest({ phase: "testing" })
-    try {
-      const result = await client.config.test({
-        baseUrl: form.baseUrl,
-        model: form.model,
-        ...(clear.apiKey
-          ? { apiKey: null }
-          : form.apiKey.trim().length > 0
-            ? { apiKey: form.apiKey.trim() }
-            : {}),
-        ...(clear.extraHeaders
-          ? { extraHeaders: null }
-          : form.extraHeaders.trim().length > 0
-            ? { extraHeaders: form.extraHeaders.trim() }
-            : {}),
-      })
-      setConnectionTest(
-        result.ok
-          ? { phase: "success", latencyMs: result.latencyMs }
-          : { phase: "error", message: result.message ?? "连接测试失败" },
-      )
-      setLoadError(undefined)
-      setSaveFeedback(undefined)
-    } catch (cause) {
-      setConnectionTest({ phase: "error", message: describeError(cause) })
-    }
-  }
-
   return (
     <div className="settings-backdrop" role="presentation" onMouseDown={() => !saving && !restarting && onClose()}>
       <section
@@ -322,7 +282,7 @@ export const SettingsDialog = ({
                 {loadError !== undefined && <div className="settings-load-error">无法读取配置：{loadError}</div>}
                 {saved && (
                   <div className="settings-saved">
-                    <span>配置已保存。模型和联网工具需要重启应用后生效；图片方式立即生效。</span>
+                    <span>配置已保存。联网与日志设置需要重启应用；模型配置保存后立即生效。</span>
                     {hasHost && (
                       <button type="button" className="btn btn-small" onClick={() => void restart()} disabled={restarting}>
                         <RotateCw size={13} />
@@ -332,124 +292,7 @@ export const SettingsDialog = ({
                   </div>
                 )}
 
-                <section className="settings-section">
-                  <div className="settings-section-heading">
-                    <h3>模型服务</h3>
-                    <div className="settings-section-actions">
-                      <span>OpenAI 兼容协议</span>
-                      <button
-                        type="button"
-                        className="btn btn-small settings-test-button"
-                        onClick={() => void testConnection()}
-                        disabled={
-                          loading ||
-                          saving ||
-                          restarting ||
-                          connectionTest.phase === "testing" ||
-                          form.baseUrl.trim().length === 0 ||
-                          form.model.trim().length === 0
-                        }
-                      >
-                        {connectionTest.phase === "testing" && (
-                          <LoaderCircle size={13} className="settings-test-spinner" />
-                        )}
-                        {connectionTest.phase === "testing" ? "测试中…" : "测试连接"}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="settings-grid">
-                    <Field label="接口地址" wide>
-                      <input
-                        value={form.baseUrl}
-                        onChange={(event) => setField("baseUrl", event.target.value)}
-                        placeholder="https://api.openai.com/v1"
-                        spellCheck={false}
-                      />
-                    </Field>
-                    <Field
-                      label="模型 ID"
-                      hint="会话创建后保持固定。切换模型会改变新会话使用的模型。"
-                    >
-                      <input
-                        value={form.model}
-                        onChange={(event) => setField("model", event.target.value)}
-                        placeholder="例如 gpt-4o 或 deepseek-flash"
-                        spellCheck={false}
-                      />
-                    </Field>
-                    <SecretField
-                      label="API Key"
-                      configured={config?.hasApiKey === true}
-                      clearing={clear.apiKey}
-                      value={form.apiKey}
-                      placeholder={
-                        config?.hasApiKey === true ? "已保存，输入新密钥可替换" : "请输入 API Key"
-                      }
-                      hint={
-                        config?.hasApiKey === true
-                          ? "留空不会替换已保存的密钥；没有默认密钥。"
-                          : "密钥只保存在本机，不会显示明文。"
-                      }
-                      onChange={(value) => setSecret("apiKey", value)}
-                      onToggleClear={() => toggleClear("apiKey")}
-                    />
-                    <Field label="上下文窗口" hint="用于判断何时压缩上下文。">
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={form.contextWindow}
-                        onChange={(event) => setField("contextWindow", event.target.value)}
-                      />
-                    </Field>
-                    <Field label="单轮输出上限" hint="同时参与上下文预算计算。">
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={form.maxOutputTokens}
-                        onChange={(event) => setField("maxOutputTokens", event.target.value)}
-                      />
-                    </Field>
-                    <Field label="温度" hint="留空表示使用模型服务默认值。">
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={form.temperature}
-                        onChange={(event) => setField("temperature", event.target.value)}
-                        placeholder="默认"
-                      />
-                    </Field>
-                    <SecretField
-                      label="附加请求头"
-                      configured={config?.hasExtraHeaders === true}
-                      clearing={clear.extraHeaders}
-                      value={form.extraHeaders}
-                      placeholder="X-Project: example; X-Region: cn"
-                      hint="多个请求头用分号分隔"
-                      masked={false}
-                      onChange={(value) => setSecret("extraHeaders", value)}
-                      onToggleClear={() => toggleClear("extraHeaders")}
-                    />
-                  </div>
-                  {connectionTest.phase === "testing" && (
-                    <p className="settings-test-result settings-test-result-testing">
-                      正在发送一次最小模型请求，可能产生少量用量…
-                    </p>
-                  )}
-                  {connectionTest.phase === "success" && (
-                    <p className="settings-test-result settings-test-result-success">
-                      <Check size={13} />
-                      连接成功，用时 {connectionTest.latencyMs}ms
-                    </p>
-                  )}
-                  {connectionTest.phase === "error" && (
-                    <p className="settings-test-result settings-test-result-error">
-                      <AlertCircle size={13} />
-                      {connectionTest.message}
-                    </p>
-                  )}
-                </section>
+                <ModelConfigSettings client={client} onChanged={onModelConfigsChanged} />
 
                 <section className="settings-section">
                   <div className="settings-section-heading">

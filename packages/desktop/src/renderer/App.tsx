@@ -38,7 +38,12 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
         </div>
       </div>
 
-      <SettingsDialog client={client} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsDialog
+        client={client}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onModelConfigsChanged={store.refreshModelConfigs}
+      />
       <CompactionProfilesDialog
         client={client}
         open={compactionProfilesOpen}

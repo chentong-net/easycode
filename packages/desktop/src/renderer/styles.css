@@ -2156,6 +2156,110 @@ pre {
   margin-left: auto;
 }
 
+/* -------------------------------------------------------------- 模型配置 */
+
+.model-config-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.model-config-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--bg-panel);
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-config-list-item:hover {
+  border-color: var(--border-strong);
+}
+
+.model-config-list-item-active {
+  border-color: var(--text-faint);
+  background: var(--bg-active);
+}
+
+.model-config-list-item > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.model-config-list-item strong,
+.model-config-list-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-config-list-item strong {
+  font-size: 12.5px;
+}
+
+.model-config-list-item small {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+.model-config-list-item em {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.model-config-form {
+  margin-top: 4px;
+}
+
+.model-config-reasoning {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.model-config-efforts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.model-config-efforts label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+  background: var(--bg-panel);
+  font-size: 12px;
+}
+
+.model-config-efforts input {
+  accent-color: var(--text);
+}
+
+.model-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* -------------------------------------------------------------- 压缩配置 */
 
 .compaction-profile-panel {

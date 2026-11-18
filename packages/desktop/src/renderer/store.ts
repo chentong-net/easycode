@@ -2,6 +2,7 @@ import type { EasyCodeClient } from "@easycode/client"
 import type {
   BulkDeleteSessionsResponse,
   CompactionProfileSummary,
+  ModelConfigSummary,
 } from "@easycode/protocol"
 import {
   isDurableEvent,
@@ -12,6 +13,7 @@ import {
   type PermissionRequest,
   type QuestionAnswer,
   type QuestionRequest,
+  type ReasoningEffort,
   type Session,
   type TaskState,
 } from "@easycode/schema"
@@ -86,8 +88,15 @@ export interface EasyCodeStore {
   pendingCompactionProfileID: string
   /** 当前应显示的压缩配置，已有会话始终来自后端会话元信息。 */
   compactionProfileID: string
-  /** 首次发送、创建会话后立即锁定。 */
-  compactionProfileLocked: boolean
+  /** 后端支持的 reasoning level 全量枚举。 */
+  availableReasoningEfforts: ReasoningEffort[]
+  /** 后端当前可用的模型配置。 */
+  modelConfigs: ModelConfigSummary[]
+  modelConfigID: string
+  reasoningEffort: ReasoningEffort | ""
+  /** 三个会话运行配置均有效后锁定。 */
+  configurationLocked: boolean
+  configurationComplete: boolean
 
   selectSession(sessionID: string): void
   /** 进入未持久化的新会话页面；首次发送时才创建会话。 */
@@ -106,6 +115,9 @@ export interface EasyCodeStore {
   replyQuestion(requestID: string, answers: QuestionAnswer[]): Promise<void>
   refreshSessions(): void
   setPendingCompactionProfileID(profileID: string): void
+  setModelConfigID(modelConfigID: string): void
+  setReasoningEffort(effort: ReasoningEffort | ""): void
+  refreshModelConfigs(signal?: AbortSignal): Promise<void>
   refreshCompactionProfiles(signal?: AbortSignal): Promise<void>
   clearError(): void
 }
@@ -133,6 +145,10 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>()
   const [compactionProfiles, setCompactionProfiles] = useState<CompactionProfileSummary[]>([])
   const [pendingCompactionProfileID, setPendingCompactionProfileIDState] = useState("coding")
+  const [availableReasoningEfforts, setAvailableReasoningEfforts] = useState<ReasoningEffort[]>([])
+  const [modelConfigs, setModelConfigs] = useState<ModelConfigSummary[]>([])
+  const [pendingModelConfigID, setPendingModelConfigIDState] = useState("")
+  const [pendingReasoningEffort, setPendingReasoningEffortState] = useState<ReasoningEffort | "">("")
 
   /** 只保留当前工作目录下的会话。切换到别的目录后，列表应当完全换一批。 */
   const scopedSessions = useMemo(
@@ -170,6 +186,22 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     }
   }, [client])
 
+  const refreshModelConfigs = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    try {
+      const result = await client.modelConfigs.list(signal)
+      if (signal?.aborted) return
+      setAvailableReasoningEfforts(result.availableReasoningEfforts)
+      setModelConfigs(result.configs)
+      setPendingModelConfigIDState((current) =>
+        current.length > 0 && result.configs.some((config) => config.id === current)
+          ? current
+          : (result.configs[0]?.id ?? ""),
+      )
+    } catch (cause) {
+      if (!signal?.aborted) setError(describeError(cause))
+    }
+  }, [client])
+
   useEffect(
     () => () => {
       if (listRefreshTimer.current !== undefined) clearTimeout(listRefreshTimer.current)
@@ -184,6 +216,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   useEffect(() => {
     const controller = new AbortController()
     void refreshCompactionProfiles(controller.signal)
+    void refreshModelConfigs(controller.signal)
     void (async () => {
       try {
         // 上下文窗口与输出预留都是模型的固有属性，进程生命周期内不会变，拉一次即可
@@ -197,16 +230,52 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       }
     })()
     return () => controller.abort()
-  }, [client, refreshCompactionProfiles])
+  }, [client, refreshCompactionProfiles, refreshModelConfigs])
 
   useEffect(() => {
     if (
       compactionProfiles.length > 0 &&
+      pendingCompactionProfileID.length > 0 &&
       !compactionProfiles.some((profile) => profile.id === pendingCompactionProfileID)
     ) {
       setPendingCompactionProfileIDState("coding")
     }
   }, [compactionProfiles, pendingCompactionProfileID])
+
+  useEffect(() => {
+    const selected = modelConfigs.find((config) => config.id === pendingModelConfigID)
+    if (selected === undefined) {
+      if (
+        activeSessionID === undefined &&
+        modelConfigs.length > 0 &&
+        pendingModelConfigID.length === 0
+      ) {
+        setPendingModelConfigIDState(modelConfigs[0]?.id ?? "")
+      }
+      return
+    }
+    if (
+      pendingReasoningEffort !== "" &&
+      !selected.supportedReasoningEfforts.includes(pendingReasoningEffort)
+    ) {
+      setPendingReasoningEffortState("")
+    }
+    if (
+      selected.supportedReasoningEfforts.length === 0 &&
+      pendingReasoningEffort !== ""
+    ) {
+      setPendingReasoningEffortState("")
+    }
+  }, [activeSessionID, modelConfigs, pendingModelConfigID, pendingReasoningEffort])
+
+  useEffect(() => {
+    if (activeSessionID === undefined) return
+    const session = scopedSessions.find((item) => item.id === activeSessionID)
+    if (!session) return
+    setPendingModelConfigIDState(session.modelConfigID ?? "")
+    setPendingCompactionProfileIDState(session.compactionProfileID ?? "")
+    setPendingReasoningEffortState(session.reasoningEffort ?? "")
+  }, [activeSessionID])
 
   /* ---------------------------------------------------------------------- */
   /* 会话列表                                                                */
@@ -479,7 +548,13 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     keepNoSelection.current = false
     setError(undefined)
     setCurrentSessionID(sessionID)
-  }, [])
+    const session = scopedSessions.find((item) => item.id === sessionID)
+    if (session) {
+      setPendingModelConfigIDState(session.modelConfigID ?? "")
+      setPendingCompactionProfileIDState(session.compactionProfileID ?? "")
+      setPendingReasoningEffortState(session.reasoningEffort ?? "")
+    }
+  }, [scopedSessions])
 
   const startNewSession = useCallback(() => {
     keepNoSelection.current = true
@@ -492,8 +567,10 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setRunning(false)
     setCompaction({ phase: "idle" })
     setTask(undefined)
+    setPendingModelConfigIDState(modelConfigs[0]?.id ?? "")
     setPendingCompactionProfileIDState("coding")
-  }, [])
+    setPendingReasoningEffortState("")
+  }, [modelConfigs])
 
   const pinSession = useCallback(
     async (sessionID: string, pinned: boolean) => {
@@ -592,17 +669,60 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     async (text: string, imageContents: JsonObject[]): Promise<boolean> => {
       if (workspace === undefined) return false
       try {
+        const selectedModel = modelConfigs.find((config) => config.id === pendingModelConfigID)
+        if (!pendingModelConfigID || selectedModel === undefined) {
+          setError("请选择模型配置")
+          return false
+        }
+        if (!pendingCompactionProfileID) {
+          setError("请选择压缩配置")
+          return false
+        }
+        if (
+          selectedModel.supportedReasoningEfforts.length > 0 &&
+          (pendingReasoningEffort === "" ||
+            !selectedModel.supportedReasoningEfforts.includes(pendingReasoningEffort))
+        ) {
+          setError("请选择思考强度")
+          return false
+        }
+        const configuration = {
+          modelConfigID: pendingModelConfigID,
+          compactionProfileID: pendingCompactionProfileID,
+          ...(pendingReasoningEffort === ""
+            ? {}
+            : { reasoningEffort: pendingReasoningEffort }),
+        }
         let sessionID = activeSessionID
         if (sessionID === undefined) {
           const session = await client.sessions.create({
             directory: workspace,
-            compactionProfileID: pendingCompactionProfileID,
+            ...configuration,
           })
           keepNoSelection.current = false
           setSessions((previous) => sortSessions([session, ...previous]))
           setCurrentSession(session)
           setCurrentSessionID(session.id)
           sessionID = session.id
+        } else {
+          const current = scopedSessions.find((session) => session.id === sessionID)
+          const selected = modelConfigs.find(
+            (config) => config.id === (current?.modelConfigID ?? ""),
+          )
+          const locked =
+            current?.modelConfigID !== undefined &&
+            current.compactionProfileID !== undefined &&
+            (selected?.supportedReasoningEfforts.length === 0 ||
+              current.reasoningEffort !== undefined)
+          if (!locked) {
+            const updated = await client.sessions.configure(sessionID, configuration)
+            setSessions((previous) =>
+              sortSessions(
+                previous.map((item) => (item.id === sessionID ? updated : item)),
+              ),
+            )
+            if (activeSessionID === sessionID) setCurrentSession(updated)
+          }
         }
         await client.sessions.prompt(sessionID, {
           text,
@@ -614,7 +734,16 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
         return false
       }
     },
-    [activeSessionID, client.sessions, pendingCompactionProfileID, workspace],
+    [
+      activeSessionID,
+      client.sessions,
+      modelConfigs,
+      pendingCompactionProfileID,
+      pendingModelConfigID,
+      pendingReasoningEffort,
+      scopedSessions,
+      workspace,
+    ],
   )
 
   const interrupt = useCallback(async () => {
@@ -662,6 +791,25 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     (profileID: string) => setPendingCompactionProfileIDState(profileID),
     [],
   )
+  const setModelConfigID = useCallback(
+    (modelConfigID: string) => {
+      setPendingModelConfigIDState(modelConfigID)
+      const config = modelConfigs.find((item) => item.id === modelConfigID)
+      if (
+        config !== undefined &&
+        (pendingReasoningEffort === "" ||
+          config.supportedReasoningEfforts.includes(pendingReasoningEffort))
+      ) {
+        return
+      }
+      setPendingReasoningEffortState("")
+    },
+    [modelConfigs, pendingReasoningEffort],
+  )
+  const setReasoningEffort = useCallback(
+    (effort: ReasoningEffort | "") => setPendingReasoningEffortState(effort),
+    [],
+  )
 
   /* ---------------------------------------------------------------------- */
   /* 派生数据                                                                */
@@ -681,6 +829,29 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     () => scopedSessions.find((session) => session.id === activeSessionID),
     [activeSessionID, scopedSessions],
   )
+  const selectedModelConfig = useMemo(
+    () => modelConfigs.find((config) => config.id === pendingModelConfigID),
+    [modelConfigs, pendingModelConfigID],
+  )
+  const configurationComplete =
+    selectedModelConfig !== undefined &&
+    pendingCompactionProfileID.length > 0 &&
+    compactionProfiles.some((profile) => profile.id === pendingCompactionProfileID) &&
+    (selectedModelConfig.supportedReasoningEfforts.length === 0 ||
+      (pendingReasoningEffort !== "" &&
+        selectedModelConfig.supportedReasoningEfforts.includes(pendingReasoningEffort)))
+  const persistedModelConfig = useMemo(
+    () => modelConfigs.find((config) => config.id === (activeSessionSummary?.modelConfigID ?? "")),
+    [activeSessionSummary?.modelConfigID, modelConfigs],
+  )
+  const persistedConfigurationComplete =
+    activeSessionSummary?.modelConfigID !== undefined &&
+    activeSessionSummary.compactionProfileID !== undefined &&
+    (persistedModelConfig?.supportedReasoningEfforts.length === 0 ||
+      (activeSessionSummary.reasoningEffort !== undefined &&
+        persistedModelConfig?.supportedReasoningEfforts.includes(
+          activeSessionSummary.reasoningEffort,
+        ) === true))
 
   return {
     allSessions: sessions,
@@ -700,11 +871,17 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     maxOutputTokens,
     compactionProfiles,
     pendingCompactionProfileID,
+    availableReasoningEfforts,
+    modelConfigs,
     compactionProfileID:
       currentSession?.compactionProfileID ??
       activeSessionSummary?.compactionProfileID ??
       pendingCompactionProfileID,
-    compactionProfileLocked: activeSessionID !== undefined,
+    modelConfigID: pendingModelConfigID,
+    reasoningEffort: pendingReasoningEffort,
+    configurationLocked:
+      activeSessionID !== undefined && persistedConfigurationComplete,
+    configurationComplete,
     selectSession,
     startNewSession,
     renameSession,
@@ -718,6 +895,9 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     replyQuestion,
     refreshSessions,
     setPendingCompactionProfileID,
+    setModelConfigID,
+    setReasoningEffort,
+    refreshModelConfigs,
     refreshCompactionProfiles,
     clearError,
   }
