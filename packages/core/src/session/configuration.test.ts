@@ -76,10 +76,14 @@ test("缺失运行配置返回请选择错误", async () => {
     resolveSessionConfiguration(session({ compactionProfileID: undefined }), services),
     /请选择压缩配置/,
   )
-  await assert.rejects(
-    resolveSessionConfiguration(session({ reasoningEffort: undefined }), services),
-    /请选择思考强度/,
+})
+
+test("配置了思考强度但未选择时使用模型默认行为", async () => {
+  const result = await resolveSessionConfiguration(
+    session({ reasoningEffort: undefined }),
+    services,
   )
+  assert.equal(result.reasoningEffort, undefined)
 })
 
 test("不支持的思考强度被拒绝", async () => {

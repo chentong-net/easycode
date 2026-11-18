@@ -13,7 +13,6 @@ import {
 import {
   MODEL_CONFIG_MISSING_MESSAGE,
   MODEL_CONFIG_REQUIRED_MESSAGE,
-  REASONING_EFFORT_REQUIRED_MESSAGE,
   REASONING_EFFORT_UNSUPPORTED_MESSAGE,
   type ModelConfigService,
 } from "../model-config/index.js"
@@ -32,7 +31,7 @@ export interface ResolvedSessionConfiguration {
 /**
  * 解析会话当前选择的配置。
  *
- * reasoningEffort 可以为空，调用方需要完整配置时再判断模型是否要求选择。
+ * reasoningEffort 可以为空；为空时不发送 reasoning_effort，使用模型默认行为。
  */
 export const resolveSessionSelection = async (
   session: Session,
@@ -68,13 +67,4 @@ export const resolveSessionSelection = async (
 export const resolveSessionConfiguration = async (
   session: Session,
   services: SessionConfigurationServices,
-): Promise<ResolvedSessionConfiguration> => {
-  const resolved = await resolveSessionSelection(session, services)
-  if (
-    resolved.modelConfig.supportedReasoningEfforts.length > 0 &&
-    resolved.reasoningEffort === undefined
-  ) {
-    throw new Error(REASONING_EFFORT_REQUIRED_MESSAGE)
-  }
-  return resolved
-}
+): Promise<ResolvedSessionConfiguration> => resolveSessionSelection(session, services)

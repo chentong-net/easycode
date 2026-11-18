@@ -361,7 +361,7 @@ export const Composer = ({
                 disabled={configurationLocked || submitting || inputDisabled}
                 aria-label="思考强度"
               >
-                <option value="">请选择思考强度</option>
+                <option value="">不指定（模型默认）</option>
                 {(selectedModel?.supportedReasoningEfforts ?? availableReasoningEfforts).map(
                   (effort) => (
                     <option value={effort} key={effort}>

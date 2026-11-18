@@ -132,7 +132,7 @@ test("未指定时新会话使用内置 coding", async () => {
   assert.equal(session.compactionProfileID, "coding")
 })
 
-test("旧式缺失思考强度会提示选择，并且可以重新选择更新", async () => {
+test("缺失思考强度可直接使用模型默认，并且可以重新选择更新", async () => {
   const config = testConfig("levels")
   const compactionProfiles = createCompactionProfileService({
     dataDir: config.dataDir,
@@ -183,10 +183,7 @@ test("旧式缺失思考强度会提示选择，并且可以重新选择更新",
     modelConfigID: levels.id,
   })
   assert.equal(session.reasoningEffort, undefined)
-  await assert.rejects(
-    sessions.prompt(session.id, { text: "继续" }),
-    (error: unknown) => error instanceof Error && error.message === "请选择思考强度。",
-  )
+  await sessions.prompt(session.id, { text: "继续" })
 
   const configured = await sessions.configure(session.id, { reasoningEffort: "high" })
   assert.equal(configured.reasoningEffort, "high")

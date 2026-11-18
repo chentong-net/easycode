@@ -701,11 +701,10 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           return false
         }
         if (
-          selectedModel.supportedReasoningEfforts.length > 0 &&
-          (pendingReasoningEffort === "" ||
-            !selectedModel.supportedReasoningEfforts.includes(pendingReasoningEffort))
+          pendingReasoningEffort !== "" &&
+          !selectedModel.supportedReasoningEfforts.includes(pendingReasoningEffort)
         ) {
-          setError("请选择思考强度")
+          setError("所选思考强度不受当前模型配置支持")
           return false
         }
         const configuration = {
@@ -852,9 +851,8 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     selectedModelConfig !== undefined &&
     pendingCompactionProfileID.length > 0 &&
     compactionProfiles.some((profile) => profile.id === pendingCompactionProfileID) &&
-    (selectedModelConfig.supportedReasoningEfforts.length === 0 ||
-      (pendingReasoningEffort !== "" &&
-        selectedModelConfig.supportedReasoningEfforts.includes(pendingReasoningEffort)))
+    (pendingReasoningEffort === "" ||
+      selectedModelConfig.supportedReasoningEfforts.includes(pendingReasoningEffort))
 
   return {
     allSessions: sessions,
