@@ -150,15 +150,24 @@ test("旧式缺失思考强度会提示选择，并且可以重新选择更新",
     },
     logger,
   })
-  const levels = await modelConfigs.create({
-    name: "分级模型",
+  const levelsRecord = await modelConfigs.create({
+    configName: "分级模型",
     baseUrl: config.baseUrl,
     model: "level-model",
     contextWindow: 32_000,
     maxOutputTokens: 2_048,
     supportedReasoningEfforts: ["none", "low", "high"],
     apiKey: config.apiKey,
+    headers: {},
+    webSearchProvider: "",
+    webSearchApiKey: "",
+    webFetchProvider: "",
+    webFetchApiKey: "",
+    webTimeoutMs: 30_000,
+    webMaxResponseBytes: 1024,
+    logLevel: "info",
   })
+  const levels = levelsRecord.config
   const sessions = createSessionManager({
     config,
     store: createSessionStore(config),
@@ -186,15 +195,24 @@ test("旧式缺失思考强度会提示选择，并且可以重新选择更新",
   assert.equal(changed.reasoningEffort, "low")
   assert.equal((await sessions.get(session.id))?.reasoningEffort, "low")
 
-  const replacement = await modelConfigs.create({
-    name: "替换模型",
+  const replacementRecord = await modelConfigs.create({
+    configName: "替换模型",
     baseUrl: config.baseUrl,
     model: "replacement-model",
     contextWindow: 16_000,
     maxOutputTokens: 1_024,
     supportedReasoningEfforts: [],
     apiKey: config.apiKey,
+    headers: {},
+    webSearchProvider: "",
+    webSearchApiKey: "",
+    webFetchProvider: "",
+    webFetchApiKey: "",
+    webTimeoutMs: 30_000,
+    webMaxResponseBytes: 1024,
+    logLevel: "info",
   })
+  const replacement = replacementRecord.config
   await modelConfigs.delete(levels.id)
   const reselected = await sessions.configure(session.id, {
     modelConfigID: replacement.id,
@@ -212,6 +230,11 @@ const testConfig = (suffix = "custom"): CoreConfig => ({
   contextWindow: 128_000,
   maxOutputTokens: 8_192,
   headers: {},
+  configName: "测试配置",
+  supportedReasoningEfforts: [],
+  revision: 1,
+  createdAt: 1,
+  updatedAt: 1,
   web: {
     timeoutMs: 30_000,
     maxResponseBytes: 1024,

@@ -2,11 +2,16 @@ import type { EasyCodeClient } from "@easycode/client"
 import {
   type ImagePlatformInfo,
   RuntimeConfigResponse,
-  RuntimeConfigUpdateRequest,
   type WebProvider,
 } from "@easycode/protocol"
 import { RotateCw, X } from "lucide-react"
-import { useEffect, useState, type FormEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react"
 
 import { hasHost, restartApp } from "./bridge"
 import { describeError } from "./format"
@@ -15,7 +20,10 @@ import {
   readImagePlatform,
   saveImagePlatform,
 } from "./image-platform"
-import { ModelConfigSettings } from "./ModelConfigs"
+import {
+  ModelConfigSettings,
+  type ModelConfigSettingsHandle,
+} from "./ModelConfigs"
 
 interface ConfigForm {
   baseUrl: string
@@ -93,6 +101,31 @@ export const SettingsDialog = ({
   const [imagePlatform, setImagePlatform] = useState(base64Platform.platform)
   const [imagePlatformsError, setImagePlatformsError] = useState<string | undefined>()
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback | undefined>()
+  const modelConfigRef = useRef<ModelConfigSettingsHandle>(null)
+
+  const handleRuntimeLoaded = useCallback((next: {
+    webSearchProvider?: WebProvider
+    webFetchProvider?: WebProvider
+    webTimeoutMs: number
+    webMaxResponseBytes: number
+    logLevel: RuntimeConfigResponse["logLevel"]
+  }): void => {
+    setForm((current) => ({
+      ...current,
+      webSearchProvider: next.webSearchProvider ?? "",
+      webFetchProvider: next.webFetchProvider ?? "",
+      webSearchApiKey: "",
+      webFetchApiKey: "",
+      webTimeoutMs: String(next.webTimeoutMs),
+      webMaxResponseBytes: String(next.webMaxResponseBytes),
+      logLevel: next.logLevel,
+    }))
+    setClear((current) => ({
+      ...current,
+      webSearchApiKey: false,
+      webFetchApiKey: false,
+    }))
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -189,36 +222,48 @@ export const SettingsDialog = ({
     event?.preventDefault()
     if (saving) return
 
-    const contextWindow = Number(form.contextWindow)
-    const maxOutputTokens = Number(form.maxOutputTokens)
     const webTimeoutMs = Number(form.webTimeoutMs)
     const webMaxResponseBytes = Number(form.webMaxResponseBytes)
-    const temperatureText = form.temperature.trim()
-    const temperature = temperatureText.length === 0 ? null : Number(temperatureText)
-
-    const input: RuntimeConfigUpdateRequest = {
-      baseUrl: form.baseUrl,
-      model: form.model,
-      contextWindow,
-      maxOutputTokens,
-      temperature,
-      ...secretUpdate("apiKey", form.apiKey, clear.apiKey),
-      ...secretUpdate("extraHeaders", form.extraHeaders, clear.extraHeaders),
-      webSearchProvider: form.webSearchProvider,
-      ...secretUpdate("webSearchApiKey", form.webSearchApiKey, clear.webSearchApiKey),
-      webFetchProvider: form.webFetchProvider,
-      ...secretUpdate("webFetchApiKey", form.webFetchApiKey, clear.webFetchApiKey),
-      webTimeoutMs,
-      webMaxResponseBytes,
-      logLevel: form.logLevel,
+    if (
+      !Number.isInteger(webTimeoutMs) ||
+      webTimeoutMs <= 0 ||
+      !Number.isInteger(webMaxResponseBytes) ||
+      webMaxResponseBytes <= 0
+    ) {
+      setSaveFeedback({ tone: "error", message: "请填写有效的联网数值配置" })
+      return
     }
 
     setSaving(true)
     setSaveFeedback(undefined)
     try {
-      const next = await client.config.update(input)
-      setConfig(next)
-      setForm(toForm(next))
+      const handle = modelConfigRef.current
+      if (handle === null) {
+        setSaveFeedback({ tone: "error", message: "模型配置尚未加载完成" })
+        return
+      }
+      const saved = await handle.saveWithRuntime({
+        webSearchProvider: form.webSearchProvider,
+        webSearchApiKey:
+          clear.webSearchApiKey
+            ? null
+            : form.webSearchApiKey.trim().length > 0
+              ? form.webSearchApiKey.trim()
+              : undefined,
+        clearWebSearchApiKey: clear.webSearchApiKey,
+        webFetchProvider: form.webFetchProvider,
+        webFetchApiKey:
+          clear.webFetchApiKey
+            ? null
+            : form.webFetchApiKey.trim().length > 0
+              ? form.webFetchApiKey.trim()
+              : undefined,
+        clearWebFetchApiKey: clear.webFetchApiKey,
+        webTimeoutMs,
+        webMaxResponseBytes,
+        logLevel: form.logLevel,
+      })
+      if (saved !== true) return
       setClear(EMPTY_CLEAR)
       setSaved(true)
       setSaveFeedback({ tone: "success", message: "保存成功" })
@@ -292,7 +337,12 @@ export const SettingsDialog = ({
                   </div>
                 )}
 
-                <ModelConfigSettings client={client} onChanged={onModelConfigsChanged} />
+                <ModelConfigSettings
+                  ref={modelConfigRef}
+                  client={client}
+                  onChanged={onModelConfigsChanged}
+                  onRuntimeLoaded={handleRuntimeLoaded}
+                />
 
                 <section className="settings-section">
                   <div className="settings-section-heading">
@@ -448,7 +498,7 @@ export const SettingsDialog = ({
                 className="btn btn-primary"
                 disabled={loading || saving || restarting}
               >
-                {saving ? "保存中…" : "保存运行设置"}
+                {saving ? "保存中…" : "保存配置"}
               </button>
             </div>
           </footer>
@@ -539,13 +589,3 @@ const toForm = (config: RuntimeConfigResponse): ConfigForm => ({
   webMaxResponseBytes: String(config.webMaxResponseBytes),
   logLevel: config.logLevel,
 })
-
-const secretUpdate = (
-  field: "apiKey" | "extraHeaders" | "webSearchApiKey" | "webFetchApiKey",
-  value: string,
-  clearing: boolean,
-): Partial<RuntimeConfigUpdateRequest> => {
-  if (clearing) return { [field]: null }
-  const trimmed = value.trim()
-  return trimmed.length === 0 ? {} : { [field]: trimmed }
-}

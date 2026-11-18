@@ -68,6 +68,11 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
       supportedReasoningEfforts: ["none", "low", "high"],
       apiKey: "secret",
       extraHeaders: "x-test: yes",
+      webSearchProvider: "",
+      webFetchProvider: "",
+      webTimeoutMs: 30_000,
+      webMaxResponseBytes: 1024,
+      logLevel: "info",
     },
   })
   assert.equal(createdResponse.statusCode, 200)
@@ -95,6 +100,11 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
       supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
       apiKey: null,
       extraHeaders: null,
+      webSearchProvider: "",
+      webFetchProvider: "",
+      webTimeoutMs: 30_000,
+      webMaxResponseBytes: 1024,
+      logLevel: "info",
     },
   })
   assert.equal(updatedResponse.statusCode, 200)
@@ -130,6 +140,11 @@ test("旧会话可补齐并重新选择思考强度", async () => {
       maxOutputTokens: 4_096,
       supportedReasoningEfforts: ["none", "low", "high"],
       apiKey: "secret",
+      webSearchProvider: "",
+      webFetchProvider: "",
+      webTimeoutMs: 30_000,
+      webMaxResponseBytes: 1024,
+      logLevel: "info",
     },
   })
   assert.equal(modelResponse.statusCode, 200)
@@ -175,6 +190,11 @@ const testConfig = (): CoreConfig => ({
   contextWindow: 32_000,
   maxOutputTokens: 2_048,
   headers: {},
+  configName: "测试配置",
+  supportedReasoningEfforts: [],
+  revision: 1,
+  createdAt: 1,
+  updatedAt: 1,
   web: {
     timeoutMs: 30_000,
     maxResponseBytes: 1024,

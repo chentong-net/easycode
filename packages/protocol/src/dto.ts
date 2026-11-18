@@ -68,6 +68,11 @@ export const AgentListResponse = z.array(AgentInfo)
 
 export type AgentListResponse = z.infer<typeof AgentListResponse>
 
+/** 配置界面支持的联网服务。 */
+export const WebProvider = z.enum(["deepseek", "glm", "tavily"])
+
+export type WebProvider = z.infer<typeof WebProvider>
+
 const ReasoningEfforts = z
   .array(ReasoningEffort)
   .max(REASONING_EFFORTS.length)
@@ -119,6 +124,13 @@ export const ModelConfigResponse = ModelConfigSummary.omit({
   temperature: z.number().finite().optional(),
   hasApiKey: z.boolean(),
   hasExtraHeaders: z.boolean(),
+  webSearchProvider: WebProvider.optional(),
+  hasWebSearchApiKey: z.boolean(),
+  webFetchProvider: WebProvider.optional(),
+  hasWebFetchApiKey: z.boolean(),
+  webTimeoutMs: z.number().int().positive(),
+  webMaxResponseBytes: z.number().int().positive(),
+  logLevel: z.enum(["debug", "info", "warn", "error"]),
 })
 
 export type ModelConfigResponse = z.infer<typeof ModelConfigResponse>
@@ -136,6 +148,13 @@ export const ModelConfigUpdateRequest = z
     apiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
     /** 省略保持旧值，null 清除，分号或换行分隔。 */
     extraHeaders: z.string().trim().min(1).max(20_000).optional().nullable(),
+    webSearchProvider: WebProvider.or(z.literal("")),
+    webSearchApiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
+    webFetchProvider: WebProvider.or(z.literal("")),
+    webFetchApiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
+    webTimeoutMs: z.number().int().positive().max(120_000),
+    webMaxResponseBytes: z.number().int().positive().max(32 * 1024 * 1024),
+    logLevel: z.enum(["debug", "info", "warn", "error"]),
   })
   .strict()
 
@@ -375,11 +394,6 @@ export const QuestionReplyRequest = z.object({
 })
 
 export type QuestionReplyRequest = z.infer<typeof QuestionReplyRequest>
-
-/** 配置界面支持的联网服务。 */
-export const WebProvider = z.enum(["deepseek", "glm", "tavily"])
-
-export type WebProvider = z.infer<typeof WebProvider>
 
 /**
  * 可安全展示给渲染进程的运行配置。

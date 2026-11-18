@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto"
 
-import { createCore, EASYCODE_CONFIG_FILE, type Core } from "@easycode/core"
+import { createCore, EASYCODE_CONFIG_DIR, type Core } from "@easycode/core"
 import { DEFAULT_WORKSPACE_DIRECTORY } from "@easycode/protocol"
 import { listen } from "@easycode/server"
 
@@ -65,7 +65,7 @@ const runCommand = async (args: ParsedArgs): Promise<void> => {
 
   try {
     if (!core.config.modelConfigured) {
-      throw new Error(`模型尚未配置。请通过桌面端设置页或编辑 ${EASYCODE_CONFIG_FILE} 完成配置。`)
+      throw new Error(`模型尚未配置。请通过桌面端设置页或编辑 ${EASYCODE_CONFIG_DIR}/<ID>.toml 完成配置。`)
     }
     const sessionID = await resolveSession(core, args, io)
 
@@ -245,7 +245,7 @@ const printHelp = (): void => {
       "  --no-token        serve 关闭鉴权，仅用于本机调试",
       "  -h, --help        显示本帮助",
       "",
-      `配置文件：${EASYCODE_CONFIG_FILE}`,
+      `配置目录：${EASYCODE_CONFIG_DIR}`,
       "配置包含模型、联网能力、上下文预算和日志级别；环境变量不会覆盖配置。",
       "",
     ].join("\n"),

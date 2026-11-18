@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, before, test } from "node:test"
 
 import {
-  ensureRuntimeConfigFile,
+  ensureConfigFiles,
   readStoredRuntimeConfig,
 } from "./config.js"
 
@@ -19,10 +19,12 @@ after(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 
-test("旧 config.toml 迁移为 runtime.json 并保留可恢复备份", async () => {
-  const configDirectory = join(directory, "config")
-  const runtimeFile = join(configDirectory, "runtime.json")
-  const legacyFile = join(directory, "config.toml")
+test("旧 config.toml 迁移为单个 ID.toml 并保留备份", async () => {
+  const root = join(directory, "legacy-toml")
+  await mkdir(root, { recursive: true })
+  const configDirectory = join(root, "config")
+  const legacyFile = join(root, "config.toml")
+  const legacyJson = join(configDirectory, "runtime.json")
   await writeFile(
     legacyFile,
     `[model]
@@ -41,22 +43,62 @@ log_level = "warn"
 `,
   )
 
-  ensureRuntimeConfigFile(runtimeFile, legacyFile)
-
-  const stored = readStoredRuntimeConfig(runtimeFile)
+  const configFile = ensureConfigFiles(configDirectory, legacyFile, legacyJson)
+  assert.match(configFile, /[/\\][0-9a-f-]+\.toml$/)
+  const stored = readStoredRuntimeConfig(configFile)
   assert.equal(stored.baseUrl, "https://legacy.example.com/v1")
   assert.equal(stored.model, "legacy-model")
   assert.equal(stored.logLevel, "warn")
-  const raw = JSON.parse(await readFile(runtimeFile, "utf8")) as Record<string, unknown>
-  assert.ok("model" in raw)
   assert.equal(
-    (await readdir(directory)).some(
+    (await readdir(root)).some(
       (name) => name.startsWith("config.toml.migrated-") && name.endsWith(".bak"),
     ),
     true,
   )
 
-  const before = await readFile(runtimeFile, "utf8")
-  ensureRuntimeConfigFile(runtimeFile, legacyFile)
-  assert.equal(await readFile(runtimeFile, "utf8"), before)
+  assert.equal(ensureConfigFiles(configDirectory, legacyFile, legacyJson), configFile)
+})
+
+test("中间 JSON 版本迁移到 TOML 并保留模型级别", async () => {
+  const root = join(directory, "legacy-json")
+  const configDirectory = join(root, "config")
+  await mkdir(configDirectory, { recursive: true })
+  const legacyToml = join(root, "config.toml")
+  const legacyJson = join(configDirectory, "runtime.json")
+  await writeFile(
+    legacyJson,
+    JSON.stringify(
+      {
+        model: {
+          base_url: "https://json.example.com/v1",
+          api_key: "json-key",
+          name: "json-model",
+          context_window: 64000,
+          max_output_tokens: 8000,
+        },
+        web: { timeout_ms: 30000, max_response_bytes: 8388608 },
+        runtime: { log_level: "info" },
+      },
+      null,
+      2,
+    ),
+  )
+  await writeFile(
+    join(configDirectory, "12345678-1234-4123-8123-123456789abc.json"),
+    JSON.stringify({
+      name: "推理模型",
+      supportedReasoningEfforts: ["low", "high"],
+    }),
+  )
+
+  const configFile = ensureConfigFiles(configDirectory, legacyToml, legacyJson)
+  const stored = readStoredRuntimeConfig(configFile)
+  assert.equal(stored.configName, "推理模型")
+  assert.deepEqual(stored.supportedReasoningEfforts, ["low", "high"])
+  const files = await readdir(configDirectory)
+  assert.equal(files.includes("runtime.json"), false)
+  assert.equal(
+    files.some((name) => name.startsWith("runtime.json.migrated-") && name.endsWith(".bak")),
+    true,
+  )
 })

@@ -3,12 +3,14 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { randomUUID } from "node:crypto"
+import { join, resolve } from "node:path"
 
-import { parse } from "smol-toml"
+import { parse, stringify } from "smol-toml"
 import { z } from "zod"
 
 import type { LLMClientConfig } from "./llm/types.js"
@@ -22,10 +24,12 @@ const logger = createLogger("config")
 export const EASYCODE_HOME_DIR = resolve(expandHome("~/easycode"))
 /** 应用内部状态目录：会话、工具输出、日志与配置文件都在这里。 */
 export const EASYCODE_STATE_DIR = join(EASYCODE_HOME_DIR, ".easycode")
-/** 唯一的应用运行配置文件。 */
-export const EASYCODE_CONFIG_FILE = join(EASYCODE_STATE_DIR, "config", "runtime.json")
+/** 多份完整运行配置所在的目录。 */
+export const EASYCODE_CONFIG_DIR = join(EASYCODE_STATE_DIR, "config")
 /** 旧版 TOML 配置，只用于一次性迁移。 */
 export const LEGACY_EASYCODE_CONFIG_FILE = join(EASYCODE_STATE_DIR, "config.toml")
+/** 中间错误版本生成的 JSON 运行配置，只用于迁移。 */
+const LEGACY_JSON_CONFIG_FILE = join(EASYCODE_CONFIG_DIR, "runtime.json")
 
 export const DEFAULT_BASE_URL = "https://api.openai.com/v1"
 export const DEFAULT_CONTEXT_WINDOW = 128_000
@@ -41,6 +45,11 @@ export interface StoredRuntimeConfig {
   maxOutputTokens: number
   temperature?: number
   headers: Record<string, string>
+  configName: string
+  supportedReasoningEfforts: string[]
+  revision: number
+  createdAt: number
+  updatedAt: number
   web: CoreWebConfig
   logLevel: LogLevel
 }
@@ -75,6 +84,8 @@ const ConfigFile = z
         max_output_tokens: z.number().int().positive().default(DEFAULT_MAX_OUTPUT_TOKENS),
         temperature: z.number().finite().optional(),
         headers: z.record(z.string(), z.string()).default({}),
+        config_name: z.string().default(""),
+        supported_reasoning_efforts: z.array(z.string()).default([]),
       })
       .default({}),
     web: z
@@ -95,6 +106,13 @@ const ConfigFile = z
         log_level: z.enum(["debug", "info", "warn", "error"]).default("info"),
       })
       .default({}),
+    meta: z
+      .object({
+        revision: z.number().int().positive().default(1),
+        created_at: z.number().int().nonnegative().default(0),
+        updated_at: z.number().int().nonnegative().default(0),
+      })
+      .default({}),
   })
   .default({})
 
@@ -107,13 +125,13 @@ type ConfigFile = z.infer<typeof ConfigFile>
  * 备份。迁移完成后运行时不再读取 TOML。
  */
 export const loadCoreConfig = (): CoreConfig => {
-  ensureConfigFile()
-  const stored = readStoredRuntimeConfig(EASYCODE_CONFIG_FILE)
+  const configFile = ensureConfigFiles()
+  const stored = readStoredRuntimeConfig(configFile)
   setLogLevel(stored.logLevel)
 
   const config: CoreConfig = {
     ...stored,
-    configFile: EASYCODE_CONFIG_FILE,
+    configFile,
     dataDir: EASYCODE_STATE_DIR,
     modelConfigured: stored.apiKey.length > 0 && stored.model.length > 0,
   }
@@ -139,7 +157,7 @@ export const loadCoreConfig = (): CoreConfig => {
 export const readStoredRuntimeConfig = (file: string): StoredRuntimeConfig => {
   let raw: unknown
   try {
-    raw = JSON.parse(readFileSync(file, "utf8"))
+    raw = parse(readFileSync(file, "utf8"))
   } catch (error) {
     throw new Error(`无法解析配置文件：${file}`, { cause: error })
   }
@@ -158,6 +176,8 @@ export const renderStoredRuntimeConfig = (config: StoredRuntimeConfig): string =
     name: config.model,
     context_window: config.contextWindow,
     max_output_tokens: config.maxOutputTokens,
+    config_name: config.configName,
+    supported_reasoning_efforts: config.supportedReasoningEfforts,
   }
   if (config.temperature !== undefined) model.temperature = config.temperature
   if (Object.keys(config.headers).length > 0) model.headers = config.headers
@@ -171,13 +191,24 @@ export const renderStoredRuntimeConfig = (config: StoredRuntimeConfig): string =
   if (search !== undefined) web.search = search
   if (fetch !== undefined) web.fetch = fetch
 
-  const content = {
+  const content = stringify({
     model,
     web,
     runtime: { log_level: config.logLevel },
-  }
+    meta: {
+      revision: config.revision,
+      created_at: config.createdAt,
+      updated_at: config.updatedAt,
+    },
+  })
 
-  return `${JSON.stringify(content, null, 2)}\n`
+  return [
+    "# EasyCode 模型配置",
+    "# 每份 TOML 是独立完整配置；API Key 仅保存在本机。",
+    "",
+    content.trimEnd(),
+    "",
+  ].join("\n")
 }
 
 /** 从配置中取出 LLM 客户端需要的连接信息。 */
@@ -190,35 +221,60 @@ export const toLLMClientConfig = (config: CoreConfig): LLMClientConfig => ({
 /** 判断内部状态目录是否已经存在。 */
 export const dataDirExists = (config: CoreConfig): boolean => existsSync(config.dataDir)
 
-const ensureConfigFile = (): void => {
-  ensureRuntimeConfigFile(EASYCODE_CONFIG_FILE, LEGACY_EASYCODE_CONFIG_FILE)
-}
+export const ensureConfigFiles = (
+  configDirectory = EASYCODE_CONFIG_DIR,
+  legacyToml = LEGACY_EASYCODE_CONFIG_FILE,
+  legacyJson = LEGACY_JSON_CONFIG_FILE,
+): string => {
+  mkdirSync(configDirectory, { recursive: true })
+  const existing = tomlFiles(configDirectory)
+  if (existing.length > 0) {
+    const selected = join(configDirectory, existing[0] as string)
+    chmodSync(selected, 0o600)
+    return selected
+  }
 
-export const ensureRuntimeConfigFile = (
-  runtimeFile: string,
-  legacyFile: string,
-): void => {
-  mkdirSync(dirname(runtimeFile), { recursive: true })
-  if (!existsSync(runtimeFile)) {
-    const stored = existsSync(legacyFile)
-      ? readLegacyStoredRuntimeConfig(legacyFile)
-      : defaultStoredConfig()
-    writeFileSync(
-      runtimeFile,
-      renderStoredRuntimeConfig(stored),
-      { encoding: "utf8", mode: 0o600 },
-    )
-    if (existsSync(legacyFile)) {
-      const backup = `${legacyFile}.migrated-${Date.now()}.bak`
-      try {
-        renameSync(legacyFile, backup)
-        logger.info("已迁移旧版 TOML 配置", { backup, configFile: runtimeFile })
-      } catch (error) {
-        logger.warn("旧版 TOML 配置已完成迁移，但无法重命名备份", { error })
-      }
+  let stored = defaultStoredConfig()
+  if (existsSync(legacyJson)) {
+    stored = readJsonStoredRuntimeConfig(legacyJson)
+  } else if (existsSync(legacyToml)) {
+    stored = readLegacyStoredRuntimeConfig(legacyToml)
+  }
+  const jsonModel = readLegacyJsonModel(configDirectory)
+  if (jsonModel !== undefined) {
+    stored = {
+      ...stored,
+      configName: typeof jsonModel.name === "string" ? jsonModel.name : stored.configName,
+      supportedReasoningEfforts: Array.isArray(jsonModel.supportedReasoningEfforts)
+        ? jsonModel.supportedReasoningEfforts.filter((value): value is string => typeof value === "string")
+        : stored.supportedReasoningEfforts,
     }
   }
-  chmodSync(runtimeFile, 0o600)
+
+  const id = randomUUID()
+  const target = join(configDirectory, `${id}.toml`)
+  writeFileSync(target, renderStoredRuntimeConfig(stored), { encoding: "utf8", mode: 0o600 })
+  chmodSync(target, 0o600)
+
+  const backupSuffix = `.migrated-${Date.now()}.bak`
+  for (const legacy of [legacyJson, legacyToml]) {
+    if (!existsSync(legacy)) continue
+    try {
+      renameSync(legacy, `${legacy}${backupSuffix}`)
+    } catch (error) {
+      logger.warn("旧配置已迁移，但无法重命名备份", { legacy, error })
+    }
+  }
+  for (const name of legacyJsonModelFiles(configDirectory)) {
+    const file = join(configDirectory, name)
+    try {
+      renameSync(file, `${file}${backupSuffix}`)
+    } catch (error) {
+      logger.warn("旧模型配置已迁移，但无法重命名备份", { file, error })
+    }
+  }
+  logger.info("已创建首份 TOML 模型配置", { configFile: target })
+  return target
 }
 
 const readLegacyStoredRuntimeConfig = (file: string): StoredRuntimeConfig => {
@@ -235,6 +291,44 @@ const readLegacyStoredRuntimeConfig = (file: string): StoredRuntimeConfig => {
   return fromConfigFile(parsed.data)
 }
 
+const readJsonStoredRuntimeConfig = (file: string): StoredRuntimeConfig => {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(file, "utf8"))
+  } catch (error) {
+    throw new Error(`无法解析旧版 JSON 运行配置：${file}`, { cause: error })
+  }
+  const parsed = ConfigFile.safeParse(raw)
+  if (!parsed.success) {
+    throw new Error(`旧版 JSON 运行配置结构不符合预期：${file}\n${parsed.error.message}`)
+  }
+  return fromConfigFile(parsed.data)
+}
+
+const tomlFiles = (directory: string): string[] =>
+  readdirSync(directory)
+    .filter((name) => name.endsWith(".toml"))
+    .sort((left, right) => left.localeCompare(right))
+
+const legacyJsonModelFiles = (directory: string): string[] =>
+  readdirSync(directory)
+    .filter((name) => name.endsWith(".json") && name !== "runtime.json")
+    .sort((left, right) => left.localeCompare(right))
+
+const readLegacyJsonModel = (directory: string): Record<string, unknown> | undefined => {
+  for (const name of legacyJsonModelFiles(directory)) {
+    try {
+      const value: unknown = JSON.parse(readFileSync(join(directory, name), "utf8"))
+      if (typeof value === "object" && value !== null) {
+        return value as Record<string, unknown>
+      }
+    } catch {
+      // 无效的中间版本 JSON 不会阻止 TOML 迁移。
+    }
+  }
+  return undefined
+}
+
 const defaultStoredConfig = (): StoredRuntimeConfig => ({
   baseUrl: DEFAULT_BASE_URL,
   apiKey: "",
@@ -242,6 +336,11 @@ const defaultStoredConfig = (): StoredRuntimeConfig => ({
   contextWindow: DEFAULT_CONTEXT_WINDOW,
   maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   headers: {},
+  configName: "",
+  supportedReasoningEfforts: [],
+  revision: 1,
+  createdAt: 0,
+  updatedAt: 0,
   web: {
     timeoutMs: DEFAULT_WEB_TIMEOUT_MS,
     maxResponseBytes: DEFAULT_WEB_MAX_RESPONSE_BYTES,
@@ -259,6 +358,11 @@ const fromConfigFile = (config: ConfigFile): StoredRuntimeConfig => ({
   maxOutputTokens: config.model.max_output_tokens,
   ...(config.model.temperature === undefined ? {} : { temperature: config.model.temperature }),
   headers: config.model.headers,
+  configName: config.model.config_name,
+  supportedReasoningEfforts: config.model.supported_reasoning_efforts,
+  revision: config.meta.revision,
+  createdAt: config.meta.created_at,
+  updatedAt: config.meta.updated_at,
   web: {
     timeoutMs: config.web.timeout_ms,
     maxResponseBytes: config.web.max_response_bytes,

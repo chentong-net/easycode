@@ -33,7 +33,7 @@ const bootstrap = async (): Promise<void> => {
     version: app.getVersion(),
     packaged: app.isPackaged,
     dataDir: paths.dataDir,
-    configFile: paths.configFile,
+    configDirectory: paths.configDirectory,
     readyFile: paths.readyFile,
   })
 

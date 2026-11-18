@@ -32,7 +32,7 @@ const ModelConfigFields = z
 /**
  * 一份完整模型配置。
  *
- * 文件保存在 `~/easycode/.easycode/config/<id>.json`。API Key 只在本机文件和
+ * 文件保存在 `~/easycode/.easycode/config/<id>.toml`。API Key 只在本机文件和
  * Core 进程内使用，HTTP 展示层会转换成“是否已配置”。
  */
 export const ModelConfig = ModelConfigFields.extend({

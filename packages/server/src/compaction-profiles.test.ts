@@ -142,6 +142,11 @@ const testConfig = (): CoreConfig => ({
   contextWindow: 128_000,
   maxOutputTokens: 8_192,
   headers: {},
+  configName: "测试配置",
+  supportedReasoningEfforts: [],
+  revision: 1,
+  createdAt: 1,
+  updatedAt: 1,
   web: {
     timeoutMs: 30_000,
     maxResponseBytes: 1024,

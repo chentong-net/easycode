@@ -6,7 +6,12 @@ import type {
 } from "@easycode/protocol"
 import type { ReasoningEffort } from "@easycode/schema"
 import { AlertCircle, Check, LoaderCircle, Plus, Trash2 } from "lucide-react"
-import { useEffect, useState } from "react"
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from "react"
 
 import { describeError } from "./format"
 
@@ -30,6 +35,22 @@ type TestState =
   | { phase: "success"; latencyMs: number }
   | { phase: "error"; message: string }
 
+export interface ModelConfigRuntimeInput {
+  webSearchProvider: ModelConfigUpdateRequest["webSearchProvider"]
+  webSearchApiKey?: string | null
+  clearWebSearchApiKey: boolean
+  webFetchProvider: ModelConfigUpdateRequest["webFetchProvider"]
+  webFetchApiKey?: string | null
+  clearWebFetchApiKey: boolean
+  webTimeoutMs: number
+  webMaxResponseBytes: number
+  logLevel: ModelConfigUpdateRequest["logLevel"]
+}
+
+export interface ModelConfigSettingsHandle {
+  saveWithRuntime(input: ModelConfigRuntimeInput): Promise<boolean>
+}
+
 const EMPTY_FORM: ModelConfigForm = {
   name: "",
   baseUrl: "",
@@ -44,13 +65,11 @@ const EMPTY_FORM: ModelConfigForm = {
   supportedReasoningEfforts: [],
 }
 
-export const ModelConfigSettings = ({
-  client,
-  onChanged,
-}: {
+export const ModelConfigSettings = forwardRef<ModelConfigSettingsHandle, {
   client: EasyCodeClient
   onChanged: () => Promise<void>
-}) => {
+  onRuntimeLoaded: (config: ModelConfigResponse) => void
+}>(({ client, onChanged, onRuntimeLoaded }, ref) => {
   const [configs, setConfigs] = useState<ModelConfigSummary[]>([])
   const [availableEfforts, setAvailableEfforts] = useState<ReasoningEffort[]>([])
   const [selectedID, setSelectedID] = useState<string | undefined>()
@@ -102,6 +121,7 @@ export const ModelConfigSettings = ({
         if (controller.signal.aborted) return
         setConfig(next)
         setForm(toForm(next))
+        onRuntimeLoaded(next)
       } catch (cause) {
         if (!controller.signal.aborted) setError(describeError(cause))
       } finally {
@@ -109,7 +129,7 @@ export const ModelConfigSettings = ({
       }
     })()
     return () => controller.abort()
-  }, [client, selectedID])
+  }, [client, onRuntimeLoaded, selectedID])
 
   const refreshList = async (preferredID?: string): Promise<void> => {
     const result = await client.modelConfigs.list()
@@ -157,8 +177,8 @@ export const ModelConfigSettings = ({
     }))
   }
 
-  const save = async (): Promise<void> => {
-    if (saving) return
+  const save = async (runtime: ModelConfigRuntimeInput): Promise<boolean> => {
+    if (saving) return false
     const contextWindow = Number(form.contextWindow)
     const maxOutputTokens = Number(form.maxOutputTokens)
     const temperatureText = form.temperature.trim()
@@ -174,7 +194,7 @@ export const ModelConfigSettings = ({
       (temperature !== null && !Number.isFinite(temperature))
     ) {
       setError("请填写有效的名称、接口地址、模型 ID 和数值配置")
-      return
+      return false
     }
 
     const input: ModelConfigUpdateRequest = {
@@ -187,6 +207,21 @@ export const ModelConfigSettings = ({
       supportedReasoningEfforts: form.supportedReasoningEfforts,
       ...secretInput("apiKey", form.apiKey, form.clearApiKey),
       ...secretInput("extraHeaders", form.extraHeaders, form.clearHeaders),
+      webSearchProvider: runtime.webSearchProvider,
+      ...secretInput(
+        "webSearchApiKey",
+        runtime.webSearchApiKey ?? "",
+        runtime.clearWebSearchApiKey,
+      ),
+      webFetchProvider: runtime.webFetchProvider,
+      ...secretInput(
+        "webFetchApiKey",
+        runtime.webFetchApiKey ?? "",
+        runtime.clearWebFetchApiKey,
+      ),
+      webTimeoutMs: runtime.webTimeoutMs,
+      webMaxResponseBytes: runtime.webMaxResponseBytes,
+      logLevel: runtime.logLevel,
     }
     setSaving(true)
     setError(undefined)
@@ -198,12 +233,15 @@ export const ModelConfigSettings = ({
           : await client.modelConfigs.update(selectedID, input)
       setConfig(next)
       setForm(toForm(next))
+      onRuntimeLoaded(next)
       setSelectedID(next.id)
       await refreshList(next.id)
       await onChanged()
-      setFeedback("模型配置已保存，已立即生效")
+      setFeedback("配置已保存，已立即生效")
+      return true
     } catch (cause) {
       setError(describeError(cause))
+      return false
     } finally {
       setSaving(false)
     }
@@ -255,6 +293,8 @@ export const ModelConfigSettings = ({
       setTest({ phase: "error", message: describeError(cause) })
     }
   }
+
+  useImperativeHandle(ref, () => ({ saveWithRuntime: save }))
 
   return (
     <section
@@ -431,13 +471,10 @@ export const ModelConfigSettings = ({
         >
           {test.phase === "testing" ? "测试中…" : "测试连接"}
         </button>
-        <button type="button" className="btn btn-small btn-primary" onClick={() => void save()} disabled={loading || saving}>
-          {saving ? "保存中…" : "保存模型配置"}
-        </button>
       </div>
     </section>
   )
-}
+})
 
 const SecretField = ({
   label,
@@ -501,7 +538,7 @@ const toForm = (config: ModelConfigResponse): ModelConfigForm => ({
 })
 
 const secretInput = (
-  field: "apiKey" | "extraHeaders",
+  field: "apiKey" | "extraHeaders" | "webSearchApiKey" | "webFetchApiKey",
   value: string,
   clearing: boolean,
 ): Partial<ModelConfigUpdateRequest> => {

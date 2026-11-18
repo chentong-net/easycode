@@ -1,6 +1,10 @@
 import type { ModelConfig } from "@easycode/schema"
 import { REASONING_EFFORTS } from "@easycode/schema"
-import { createLLMClient, toModelLLMClientConfig } from "@easycode/core"
+import {
+  createLLMClient,
+  toModelLLMClientConfig,
+  type StoredRuntimeConfig,
+} from "@easycode/core"
 import {
   ApiResponse,
   ModelConnectionTestResponse,
@@ -55,7 +59,7 @@ export const modelConfigRoutes: FastifyPluginAsyncZod<ModelConfigRoutesOptions> 
       },
       async (request) => {
         try {
-          return success(view(await core.modelConfigs.require(request.params.configID)))
+          return success(view(await core.modelConfigs.requireRecord(request.params.configID)))
         } catch (error) {
           throw businessFailure(error)
         }
@@ -73,7 +77,8 @@ export const modelConfigRoutes: FastifyPluginAsyncZod<ModelConfigRoutesOptions> 
       },
       async (request) => {
         try {
-          return success(view(await core.modelConfigs.create(toMutation(request.body))))
+          const record = await core.modelConfigs.create(toMutation(request.body))
+          return success(view(record))
         } catch (error) {
           throw businessFailure(error)
         }
@@ -92,11 +97,11 @@ export const modelConfigRoutes: FastifyPluginAsyncZod<ModelConfigRoutesOptions> 
       },
       async (request) => {
         try {
-          const config = await core.modelConfigs.update(
+          const record = await core.modelConfigs.update(
             request.params.configID,
             toMutation(request.body),
           )
-          return success(view(config))
+          return success(view(record))
         } catch (error) {
           throw businessFailure(error)
         }
@@ -191,14 +196,25 @@ const summary = (config: ModelConfig) => ({
   updatedAt: config.updatedAt,
 })
 
-const view = (config: ModelConfig) => ({
-  ...summary(config),
-  baseUrl: config.baseUrl,
-  ...(config.temperature === undefined ? {} : { temperature: config.temperature }),
+const view = (record: { config: ModelConfig; runtime: StoredRuntimeConfig }) => ({
+  ...summary(record.config),
+  baseUrl: record.runtime.baseUrl,
+  ...(record.runtime.temperature === undefined ? {} : { temperature: record.runtime.temperature }),
+  ...(record.runtime.web.search.provider === undefined
+    ? {}
+    : { webSearchProvider: record.runtime.web.search.provider }),
+  hasWebSearchApiKey: record.runtime.web.search.apiKey.length > 0,
+  ...(record.runtime.web.fetch.provider === undefined
+    ? {}
+    : { webFetchProvider: record.runtime.web.fetch.provider }),
+  hasWebFetchApiKey: record.runtime.web.fetch.apiKey.length > 0,
+  webTimeoutMs: record.runtime.web.timeoutMs,
+  webMaxResponseBytes: record.runtime.web.maxResponseBytes,
+  logLevel: record.runtime.logLevel,
 })
 
 const toMutation = (input: ModelConfigUpdateRequest) => ({
-  name: input.name,
+  configName: input.name,
   baseUrl: input.baseUrl,
   model: input.model,
   contextWindow: input.contextWindow,
@@ -217,6 +233,23 @@ const toMutation = (input: ModelConfigUpdateRequest) => ({
       : input.extraHeaders === null
         ? null
         : parseHeaders(input.extraHeaders),
+  webSearchProvider: input.webSearchProvider,
+  webSearchApiKey:
+    input.webSearchApiKey === undefined
+      ? undefined
+      : input.webSearchApiKey === null
+        ? null
+        : input.webSearchApiKey,
+  webFetchProvider: input.webFetchProvider,
+  webFetchApiKey:
+    input.webFetchApiKey === undefined
+      ? undefined
+      : input.webFetchApiKey === null
+        ? null
+        : input.webFetchApiKey,
+  webTimeoutMs: input.webTimeoutMs,
+  webMaxResponseBytes: input.webMaxResponseBytes,
+  logLevel: input.logLevel,
 })
 
 const parseHeaders = (text: string): Record<string, string> => {

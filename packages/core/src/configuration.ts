@@ -165,6 +165,11 @@ const toStoredConfig = (config: CoreConfig): StoredRuntimeConfig => ({
   maxOutputTokens: config.maxOutputTokens,
   ...(config.temperature === undefined ? {} : { temperature: config.temperature }),
   headers: { ...config.headers },
+  configName: config.configName,
+  supportedReasoningEfforts: [...config.supportedReasoningEfforts],
+  revision: config.revision,
+  createdAt: config.createdAt,
+  updatedAt: config.updatedAt,
   web: cloneWebConfig(config.web),
   logLevel: config.logLevel,
 })
@@ -240,6 +245,11 @@ const applyUpdate = (current: StoredRuntimeConfig, input: RuntimeConfigUpdate): 
     maxOutputTokens: input.maxOutputTokens,
     ...(temperature === undefined ? {} : { temperature }),
     headers,
+    configName: current.configName,
+    supportedReasoningEfforts: current.supportedReasoningEfforts,
+    revision: current.revision + 1,
+    createdAt: current.createdAt,
+    updatedAt: Date.now(),
     web: {
       timeoutMs: input.webTimeoutMs,
       maxResponseBytes: input.webMaxResponseBytes,
