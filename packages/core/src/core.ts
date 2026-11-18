@@ -12,6 +12,10 @@ import {
 } from "./image/index.js"
 import { createLLMClient } from "./llm/client.js"
 import { createLogger, setLogLevel, type Logger } from "./log.js"
+import {
+  createModelConfigService,
+  type ModelConfigService,
+} from "./model-config/index.js"
 import { createPermissionService, type PermissionService } from "./permission/service.js"
 import { createQuestionService, type QuestionService } from "./question/service.js"
 import { createRunner } from "./runner/index.js"
@@ -43,6 +47,7 @@ export interface Core {
   hub: EventHub
   agents: AgentRegistry
   compactionProfiles: CompactionProfileService
+  modelConfigs: ModelConfigService
   configuration: ConfigurationService
   images: ImageServiceRegistry
   sessions: SessionManager
@@ -75,6 +80,19 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   const compactionProfiles = createCompactionProfileService({
     dataDir: config.dataDir,
     logger: logger.child("compaction-profile"),
+  })
+  const modelConfigs = createModelConfigService({
+    dataDir: config.dataDir,
+    seed: {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      contextWindow: config.contextWindow,
+      maxOutputTokens: config.maxOutputTokens,
+      ...(config.temperature === undefined ? {} : { temperature: config.temperature }),
+      headers: config.headers,
+    },
+    logger: logger.child("model-config"),
   })
   const configuration = createConfigurationService({ config })
   const images = createImageServiceRegistry({
@@ -147,6 +165,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     hub,
     agents,
     compactionProfiles,
+    modelConfigs,
     configuration,
     images,
     sessions,
