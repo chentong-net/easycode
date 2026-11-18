@@ -1,4 +1,10 @@
-import type { Content, JsonObject, ToolDefinition, Usage } from "@easycode/schema"
+import type {
+  Content,
+  JsonObject,
+  ReasoningEffort,
+  ToolDefinition,
+  Usage,
+} from "@easycode/schema"
 
 /**
  * LLM 协议层的类型定义。
@@ -40,6 +46,8 @@ export interface LLMRequest {
   /** provider 允许生成的最大输出 token 数 */
   maxOutputTokens?: number
   temperature?: number
+  /** 未设置时不发送 reasoning_effort，使用 provider 默认行为。 */
+  reasoningEffort?: ReasoningEffort
   signal?: AbortSignal
   /** 会话 ID，用于把同一会话的请求路由到同一后端，提升 prompt 缓存命中率 */
   sessionID?: string

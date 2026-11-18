@@ -92,6 +92,9 @@ export const buildRequestBody = (request: LLMRequest): Record<string, unknown> =
 
   if (request.temperature !== undefined) body.temperature = request.temperature
   if (request.maxOutputTokens !== undefined) body.max_tokens = request.maxOutputTokens
+  if (request.reasoningEffort !== undefined) {
+    body.reasoning_effort = request.reasoningEffort
+  }
 
   return body
 }
