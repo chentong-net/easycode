@@ -1,6 +1,6 @@
 # EasyCode
 
-EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。应用配置固定保存在 `~/easycode/.easycode/config.toml`。
+EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。应用配置固定保存在 `~/easycode/.easycode/config.toml`，上下文压缩提示词通过独立的「压缩配置」管理。
 
 术语说明：本文保留 `epoch`、`baseline`、`checkpoint`、`snapshot`、`compaction` 的原始英文，并在首次出现时用括号标注中文提示。`epoch` 指一次冻结上下文从建立到重建的周期，不是模型训练中的 epoch，也不是 Unix 时间起点。
 
@@ -55,6 +55,8 @@ npm install
 ```
 
 首次启动会自动创建 `~/easycode/.easycode/config.toml`。可以双击桌面端后通过「运行配置」填写，也可以直接编辑该 TOML 文件；保存后重启应用生效。
+
+桌面端设置按钮左侧的机器人按钮打开「压缩配置管理」。内置 `Coding` 直接定义在代码中，始终可用且不可修改或删除；用户新建的压缩配置保存在 `~/easycode/.easycode/compaction-profile/`，保存后立即热加载。新建会话时在输入框底部选择压缩配置，首次发送、创建会话后绑定关系不可再修改。
 
 配置文件示例：
 
@@ -258,7 +260,9 @@ npm run package --workspace @easycode/desktop
 
 compaction（压缩）预算根据上下文窗口动态推导，不再使用固定 20K 缓冲区和 8K 保留区。Runner 会为输出、安全余量和最近对话分别计算空间，并在上下文达到软阈值时自动执行 compaction。
 
-摘要使用结构化工作记忆模板，保留目标、限制、决定、完成状态、阻塞、下一步、关键文件和待办状态。最近历史会尽量从完整用户交换开始保留；当交换本身超过预算时，会在消息边界内切分。旧推理文本不会进入摘要输入。摘要内容超过预算时会分块摘要再合并；模型摘要失败、超时或输出被截断时，会生成确定性的降级 checkpoint（检查点），而不是直接放弃 compaction。
+摘要提示词、区段标题和必需输出标题由会话绑定的 `compaction-profile` 提供。通用引擎负责固定 section 顺序、预算、历史切分、分块、合并、格式纠正和降级，用户配置不能绕过这些运行时约束。最近历史会尽量从完整用户交换开始保留；当交换本身超过预算时，会在消息边界内切分。旧推理文本不会进入摘要输入。摘要内容超过预算时会分块摘要再合并；模型摘要失败、超时、输出为空或为截断输出时，由引擎生成确定性的降级 checkpoint（检查点），不再调用模型。
+
+每份压缩配置包含四类指令：首次摘要、分块摘要、最终合并和格式纠正。输出必须包含配置中声明的全部 Markdown 二级标题；第一次不合格时追加纠正指令重试一次，仍不合格则进入引擎降级。配置中的任务状态 section 可以关闭，关闭后压缩请求不会读取或注入当前任务。
 
 provider 报告上下文超限时，Runner 会重新投影历史、重建请求并缩小保留区后重试，最多进行两次 compaction 重试。compaction 诊断目录会记录触发原因、前后预算估算、尝试次数和是否降级。
 
@@ -328,6 +332,11 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | GET | `/api/health` | 服务状态、协议版本、模型 id、上下文窗口与输出预算 |
 | GET | `/api/agents` | 可用 agent 列表 |
 | GET | `/api/images/platforms` | 当前已注册的图片平台 |
+| GET | `/api/compaction-profiles` | 压缩配置摘要列表，内置 Coding 始终位于首项 |
+| GET | `/api/compaction-profiles/{id}` | 读取完整压缩配置，用于编辑表单 |
+| POST | `/api/compaction-profiles` | 新建并保存用户压缩配置 |
+| PUT | `/api/compaction-profiles/{id}` | 更新用户压缩配置并增加 revision |
+| DELETE | `/api/compaction-profiles/{id}` | 删除用户压缩配置；不检查会话引用 |
 | GET | `/api/config` | 可安全展示的 TOML 运行配置；密钥只返回是否已配置 |
 | PUT | `/api/config` | 保存模型、联网和日志配置到固定 `config.toml` |
 | POST | `/api/config/test` | 使用当前表单值发送一次最小模型请求，验证连接 |
@@ -337,7 +346,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | DELETE | `/api/workspaces/{id}` | 删除非默认工作区及其会话记录，不删除磁盘目录 |
 | POST | `/api/workspaces/{id}/pin` | 置顶或取消置顶，请求体为 `{ pinned }` |
 | GET | `/api/sessions` | 会话列表 |
-| POST | `/api/sessions` | 创建会话，请求体为 `{ directory, title? }` |
+| POST | `/api/sessions` | 创建会话，请求体为 `{ directory, title?, compactionProfileID? }` |
 | POST | `/api/sessions/bulk-delete` | 批量删除会话，请求体为 `{ sessionIDs }`，返回成功与失败项 |
 | GET | `/api/sessions/{id}` | 会话详情 |
 | PATCH | `/api/sessions/{id}` | 重命名会话，请求体为 `{ title }` |
@@ -364,6 +373,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
   sessions/<会话ID>/context.json    epoch（上下文周期）状态
+  compaction-profile/<ID>.json      用户压缩配置，内置 Coding 不在此目录
   compaction-contexts/<会话ID>/<YYYYMMDDHHmm-t预估Token-compactionID>/
                                      compaction 前后的完整请求与摘要诊断
   tool-output/tool_*.txt            超长工具输出的落盘文件
@@ -377,7 +387,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - `before.json`：触发 compaction 前准备发送给主模型的完整请求；
 - `after.json`：新 epoch 建立后，真正准备发送给主模型的完整请求；
 - `summaries/`：摘要模型每次调用的完整输入、结束原因、usage 和模板校验结果，失败或中间分块会保留原始摘要文本；
-- `metadata.json`：触发原因、预算、compaction 前后估算、保留消息、摘要尝试次数和是否降级。
+- `metadata.json`：触发原因、压缩配置 ID/revision、预算、compaction 前后估算、保留消息、摘要尝试次数和是否降级。
 
 诊断文件不包含 API Key 等鉴权信息，使用仅当前用户可读的文件权限。备份失败只记录警告，不会中断主任务。
 
@@ -395,6 +405,9 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 默认工作区不能删除，但其会话仍可逐个删除；删除其他工作区只清理 EasyCode 记录，不删除本地目录和文件
 - 桌面端启动时不自动打开历史会话，工作区默认折叠；用户在新会话页面首次发送后才在默认工作区创建会话并展开该工作区
 - 多会话：会话创建时绑定工作区目录，之后保持绑定
+- 会话创建时同时绑定压缩配置并持久化 `compactionProfileID`；配置选择在首次发送后立即锁定
+- 删除压缩配置不检查会话引用；会话继续对话时如果配置已丢失，会直接报错且不调用模型，历史仍可查看
+- 用户压缩配置保存后立即热加载，正在执行的压缩继续使用开始时捕获的配置快照
 - 首轮回答结束后使用一次独立模型请求生成会话标题，失败时回退到输入摘要
 - 会话列表按置顶优先、最近活跃时间倒序排列，支持右键重命名、置顶、单选删除和当前活动工作区内多选删除
 - 多选删除使用批量接口返回逐项结果，运行中的会话会先中断；部分失败时保留失败项
