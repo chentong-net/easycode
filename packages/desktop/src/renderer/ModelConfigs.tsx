@@ -420,7 +420,13 @@ export const ModelConfigSettings = ({
           type="button"
           className="btn btn-small"
           onClick={() => void testConnection()}
-          disabled={loading || saving || test.phase === "testing"}
+          disabled={
+            loading ||
+            saving ||
+            test.phase === "testing" ||
+            form.baseUrl.trim().length === 0 ||
+            form.model.trim().length === 0
+          }
           title={selectedID === undefined ? "使用当前表单值测试" : "测试已保存的模型配置"}
         >
           {test.phase === "testing" ? "测试中…" : "测试连接"}

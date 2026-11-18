@@ -365,6 +365,12 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
   ): Promise<Session> => {
     const handle = await load(sessionID)
     const current = handle.state.session
+    const currentModelConfig = current.modelConfigID === undefined
+      ? undefined
+      : await deps.modelConfigs.get(current.modelConfigID)
+    const currentEffortLocked =
+      current.reasoningEffort === undefined ||
+      currentModelConfig?.supportedReasoningEfforts.includes(current.reasoningEffort) === true
     if (
       (current.modelConfigID !== undefined &&
         input.modelConfigID !== undefined &&
@@ -372,7 +378,8 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       (current.compactionProfileID !== undefined &&
         input.compactionProfileID !== undefined &&
         current.compactionProfileID !== input.compactionProfileID) ||
-      (current.reasoningEffort !== undefined &&
+      (currentEffortLocked &&
+        current.reasoningEffort !== undefined &&
         input.reasoningEffort !== undefined &&
         current.reasoningEffort !== input.reasoningEffort)
     ) {
@@ -381,7 +388,10 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
     const modelConfigID = current.modelConfigID ?? input.modelConfigID
     const compactionProfileID = current.compactionProfileID ?? input.compactionProfileID
-    const reasoningEffort = current.reasoningEffort ?? input.reasoningEffort
+    const reasoningEffort =
+      currentEffortLocked && current.reasoningEffort !== undefined
+        ? current.reasoningEffort
+        : (input.reasoningEffort ?? current.reasoningEffort)
     const modelConfig = modelConfigID === undefined
       ? undefined
       : await deps.modelConfigs.require(modelConfigID)
