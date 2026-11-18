@@ -1,6 +1,5 @@
 import type {
   Agent,
-  CompactionProfile,
   Content,
   Delivery,
   TaskOutcomeStatus,
@@ -11,20 +10,25 @@ import type {
 import { addUsage } from "@easycode/schema"
 
 import { resolveAgent, type AgentRegistry } from "../agent.js"
-import {
-  COMPACTION_PROFILE_MISSING_MESSAGE,
-  COMPACTION_PROFILE_REQUIRED_MESSAGE,
-  type CompactionProfileService,
-} from "../compaction-profile/index.js"
+import type { CompactionProfileService } from "../compaction-profile/index.js"
 import type { CoreConfig } from "../config.js"
 import { PermissionDeclinedError } from "../errors.js"
 import { newInputID, newMessageID } from "../id.js"
 import { describeError, isAbortError, LLMError } from "../llm/error.js"
+import { createLLMClient } from "../llm/client.js"
 import type { LLMClient, LLMRequest } from "../llm/types.js"
 import { createLogger, type Logger } from "../log.js"
+import {
+  toModelLLMClientConfig,
+  type ModelConfigService,
+} from "../model-config/index.js"
 import type { PermissionService } from "../permission/service.js"
 import type { QuestionService } from "../question/service.js"
-import type { CompactionManager } from "../session/compaction.js"
+import { createCompactionManager, type CompactionManager } from "../session/compaction.js"
+import {
+  resolveSessionConfiguration,
+  type ResolvedSessionConfiguration,
+} from "../session/configuration.js"
 import type { SystemContextManager } from "../session/context.js"
 import { buildLLMMessages } from "../session/history.js"
 import { pendingInputList, type ProjectedState } from "../session/projector.js"
@@ -70,44 +74,58 @@ interface RunControl {
 
 export interface RunnerDeps {
   config: CoreConfig
-  llm: LLMClient
   sessions: SessionManager
   agents: AgentRegistry
   tools: ToolRegistry
   permissions: PermissionService
   questions: QuestionService
-  compaction: CompactionManager
+  modelConfigs: ModelConfigService
   compactionProfiles: CompactionProfileService
   context: SystemContextManager
   hub: EventHub
   logger?: Logger
 }
 
+interface TurnRuntime {
+  selection: ResolvedSessionConfiguration
+  llm: LLMClient
+  compaction: CompactionManager
+}
+
 export const createRunner = (deps: RunnerDeps): RunDriver => {
   const logger = deps.logger ?? createLogger("runner")
   const controls = new Map<string, RunControl>()
 
-  const requireCompactionProfile = async (handle: SessionHandle): Promise<CompactionProfile> => {
-    const profileID = handle.state.session.compactionProfileID
-    if (!profileID) {
+  const resolveTurnRuntime = async (handle: SessionHandle): Promise<TurnRuntime> => {
+    try {
+      const selection = await resolveSessionConfiguration(handle.state.session, deps)
+      const llm = createLLMClient(
+        toModelLLMClientConfig(selection.modelConfig),
+        logger.child("llm"),
+      )
+      const compaction = createCompactionManager({
+        config: {
+          ...deps.config,
+          contextWindow: selection.modelConfig.contextWindow,
+          maxOutputTokens: selection.modelConfig.maxOutputTokens,
+          ...(selection.modelConfig.temperature === undefined
+            ? {}
+            : { temperature: selection.modelConfig.temperature }),
+        },
+        llm,
+        logger: logger.child("compaction"),
+      })
+      return { selection, llm, compaction }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       await handle.append({
         type: "session.failed",
         sessionID: handle.id,
         timestamp: Date.now(),
-        message: COMPACTION_PROFILE_REQUIRED_MESSAGE,
+        message,
       })
-      throw new Error(COMPACTION_PROFILE_REQUIRED_MESSAGE)
+      throw error
     }
-    const profile = await deps.compactionProfiles.get(profileID)
-    if (profile) return profile
-
-    await handle.append({
-      type: "session.failed",
-      sessionID: handle.id,
-      timestamp: Date.now(),
-      message: COMPACTION_PROFILE_MISSING_MESSAGE,
-    })
-    throw new Error(COMPACTION_PROFILE_MISSING_MESSAGE)
   }
 
   const controlOf = (sessionID: string): RunControl => {
@@ -278,8 +296,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     compactedOnce?: boolean
     /** 当前 turn 准备好发送后需要写入的 compaction 诊断 ID。 */
     backupAfterID?: string
-    /** compaction 重建请求时复用开始时捕获的配置快照。 */
-    compactionProfile?: CompactionProfile
+    /** 同一回合内重建或 overflow 时复用开始时捕获的模型与配置快照。 */
+    runtime?: TurnRuntime
   }
 
   interface TurnResult {
@@ -374,8 +392,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const { handle, agent } = params
     const session = handle.state.session
     const signal = params.controller.signal
-    const compactionProfile =
-      params.compactionProfile ?? (await requireCompactionProfile(handle))
+    const runtime = params.runtime ?? (await resolveTurnRuntime(handle))
+    const compactionProfile = runtime.selection.compactionProfile
 
     // 1. 将待处理输入转为可见消息。有输入完成转换时重置步数预算。
     const promoted = await promoteInputs(handle, params.promotion)
@@ -402,9 +420,13 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
     // 4. compaction（压缩）检查。执行过后重建请求（baseline 会换成新 epoch 的版本）。
     if (params.compactedOnce !== true) {
-      const compacted = await deps.compaction.compactIfNeeded({
+      const compacted = await runtime.compaction.compactIfNeeded({
         handle,
         profile: compactionProfile,
+        model: runtime.selection.modelConfig.model,
+        ...(runtime.selection.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: runtime.selection.reasoningEffort }),
         baselineSeq: systemContext.baselineSeq,
         system,
         tools,
@@ -421,18 +443,21 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           step,
           promotion: undefined,
           compactedOnce: true,
-          compactionProfile,
+          runtime,
           ...(compacted.backupID === undefined ? {} : { backupAfterID: compacted.backupID }),
         })
       }
     }
 
     const request: LLMRequest = {
-      model: session.model,
+      model: runtime.selection.modelConfig.model,
+      ...(runtime.selection.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: runtime.selection.reasoningEffort }),
       system,
       messages,
       tools,
-      maxOutputTokens: deps.compaction.budget().outputTokens,
+      maxOutputTokens: runtime.compaction.budget().outputTokens,
       ...(isFinal ? { toolChoice: "none" as const } : {}),
       sessionID: session.id,
     }
@@ -446,7 +471,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     }
 
     if (params.backupAfterID) {
-      await deps.compaction.recordAfter(params.backupAfterID, request)
+      await runtime.compaction.recordAfter(params.backupAfterID, request)
     }
 
     // 取消信号由 streamTurn 创建：它需要为本轮单独派生一个控制器，
@@ -458,7 +483,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       step,
       isLastStep: isFinal,
       parentSignal: signal,
-      compactionProfile,
+      runtime,
     })
   }
 
@@ -475,8 +500,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     isLastStep: boolean
     /** 外层回合的取消信号。它被中止代表用户点了「中断」 */
     parentSignal: AbortSignal
-    /** 本次请求开始时的压缩配置快照。 */
-    compactionProfile: CompactionProfile
+    /** 本次请求开始时的模型、推理等级和压缩配置快照。 */
+    runtime: TurnRuntime
   }
 
   interface AttemptParams {
@@ -492,6 +517,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     signal: AbortSignal
     /** 外层回合信号，用于区分「用户拒绝」与「用户中断」 */
     parentSignal: AbortSignal
+    runtime: TurnRuntime
   }
 
   /** 单次尝试的结果。overflow 为 true 表示上下文超限且还没产出内容，值得执行 compaction 后重试。 */
@@ -523,13 +549,18 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           turn: turn.controller,
           signal: turn.controller.signal,
           parentSignal: params.parentSignal,
+          runtime: params.runtime,
         })
         if (!result.overflow || attempt >= 2) return result
 
         attempt += 1
-        const compacted = await deps.compaction.compactAfterOverflow({
+        const compacted = await params.runtime.compaction.compactAfterOverflow({
           handle: params.handle,
-          profile: params.compactionProfile,
+          profile: params.runtime.selection.compactionProfile,
+          model: params.runtime.selection.modelConfig.model,
+          ...(params.runtime.selection.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: params.runtime.selection.reasoningEffort }),
           baselineSeq: (await deps.context.ensure(params.handle)).baselineSeq,
           system: request.system,
           tools: request.tools,
@@ -549,12 +580,12 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         request = {
           ...request,
           system: buildMainSystemPrompt(
-            params.compactionProfile.agentSystemPrompt,
+            params.runtime.selection.compactionProfile.agentSystemPrompt,
             systemContext.baseline,
           ),
           messages: buildLLMMessages(params.handle.state, { baselineSeq: systemContext.baselineSeq }),
         }
-        await deps.compaction.recordAfter(compacted.backupID, request)
+        await params.runtime.compaction.recordAfter(compacted.backupID, request)
         logger.info("compaction 完成，重试本次请求", { sessionID: params.handle.id })
       }
     } finally {
@@ -575,7 +606,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       sessionID: session.id,
       timestamp: startedAt,
       messageID,
-      model: session.model,
+      model: params.request.model,
     })
 
     /** 当前正在累积的 part。模型的输出在「文本」与「推理」之间切换时，先结束并写入上一段。 */
@@ -667,7 +698,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const declinedThisTurn = (): boolean => declined !== undefined && !params.parentSignal.aborted
 
     try {
-      for await (const event of deps.llm.stream(params.request)) {
+      for await (const event of params.runtime.llm.stream(params.request)) {
         switch (event.type) {
           case "text.delta":
             produced = true
@@ -1282,11 +1313,24 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const assistant = firstAssistantText(handle.state)
     if (!user || !assistant) return
 
+    let runtime: TurnRuntime
+    try {
+      runtime = await resolveTurnRuntime(handle)
+    } catch (error) {
+      logger.warn("无法解析会话模型配置，跳过标题生成", {
+        sessionID: handle.id,
+        error: describeError(error),
+      })
+      return
+    }
     let generated = ""
     let usage: Usage | undefined
     try {
-      for await (const event of deps.llm.stream({
-        model: handle.state.session.model,
+      for await (const event of runtime.llm.stream({
+        model: runtime.selection.modelConfig.model,
+        ...(runtime.selection.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: runtime.selection.reasoningEffort }),
         system: [TITLE_SYSTEM_PROMPT],
         messages: [
           {

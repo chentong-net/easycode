@@ -12,6 +12,7 @@ import {
 import type { CoreConfig } from "../config.js"
 import { createEventHub } from "../events.js"
 import type { Logger } from "../log.js"
+import { createModelConfigService } from "../model-config/index.js"
 import { createSessionManager } from "./runtime.js"
 import { createSessionStore } from "./store.js"
 
@@ -40,12 +41,25 @@ test("会话持久化压缩配置，配置删除后拒绝继续对话", async ()
     dataDir: config.dataDir,
     logger,
   })
+  const modelConfigs = createModelConfigService({
+    dataDir: config.dataDir,
+    seed: {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      contextWindow: config.contextWindow,
+      maxOutputTokens: config.maxOutputTokens,
+      headers: config.headers,
+    },
+    logger,
+  })
   const sessions = createSessionManager({
     config,
     store,
     hub: createEventHub(logger),
     agents: createAgentRegistry(),
     compactionProfiles,
+    modelConfigs,
     logger,
   })
   const custom = await compactionProfiles.create({
@@ -92,17 +106,86 @@ test("未指定时新会话使用内置 coding", async () => {
     dataDir: config.dataDir,
     logger,
   })
+  const modelConfigs = createModelConfigService({
+    dataDir: config.dataDir,
+    seed: {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      contextWindow: config.contextWindow,
+      maxOutputTokens: config.maxOutputTokens,
+      headers: config.headers,
+    },
+    logger,
+  })
   const sessions = createSessionManager({
     config,
     store: createSessionStore(config),
     hub: createEventHub(logger),
     agents: createAgentRegistry(),
     compactionProfiles,
+    modelConfigs,
     logger,
   })
 
   const session = await sessions.create({ directory })
   assert.equal(session.compactionProfileID, "coding")
+})
+
+test("旧式缺失思考强度会提示选择，补齐后锁定", async () => {
+  const config = testConfig("levels")
+  const compactionProfiles = createCompactionProfileService({
+    dataDir: config.dataDir,
+    logger,
+  })
+  const modelConfigs = createModelConfigService({
+    dataDir: config.dataDir,
+    seed: {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      contextWindow: config.contextWindow,
+      maxOutputTokens: config.maxOutputTokens,
+      headers: config.headers,
+    },
+    logger,
+  })
+  const levels = await modelConfigs.create({
+    name: "分级模型",
+    baseUrl: config.baseUrl,
+    model: "level-model",
+    contextWindow: 32_000,
+    maxOutputTokens: 2_048,
+    supportedReasoningEfforts: ["none", "low", "high"],
+    apiKey: config.apiKey,
+  })
+  const sessions = createSessionManager({
+    config,
+    store: createSessionStore(config),
+    hub: createEventHub(logger),
+    agents: createAgentRegistry(),
+    compactionProfiles,
+    modelConfigs,
+    logger,
+  })
+
+  const session = await sessions.create({
+    directory,
+    modelConfigID: levels.id,
+  })
+  assert.equal(session.reasoningEffort, undefined)
+  await assert.rejects(
+    sessions.prompt(session.id, { text: "继续" }),
+    (error: unknown) => error instanceof Error && error.message === "请选择思考强度。",
+  )
+
+  const configured = await sessions.configure(session.id, { reasoningEffort: "high" })
+  assert.equal(configured.reasoningEffort, "high")
+  assert.equal((await sessions.get(session.id))?.reasoningEffort, "high")
+  await assert.rejects(
+    sessions.configure(session.id, { reasoningEffort: "low" }),
+    /已锁定/,
+  )
 })
 
 const testConfig = (suffix = "custom"): CoreConfig => ({

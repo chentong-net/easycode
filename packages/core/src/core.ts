@@ -3,14 +3,13 @@ import {
   createCompactionProfileService,
   type CompactionProfileService,
 } from "./compaction-profile/index.js"
-import { loadCoreConfig, toLLMClientConfig, type CoreConfig } from "./config.js"
+import { loadCoreConfig, type CoreConfig } from "./config.js"
 import { createConfigurationService, type ConfigurationService } from "./configuration.js"
 import { createEventHub, type EventHub } from "./events.js"
 import {
   createImageServiceRegistry,
   type ImageServiceRegistry,
 } from "./image/index.js"
-import { createLLMClient } from "./llm/client.js"
 import { createLogger, setLogLevel, type Logger } from "./log.js"
 import {
   createModelConfigService,
@@ -19,7 +18,6 @@ import {
 import { createPermissionService, type PermissionService } from "./permission/service.js"
 import { createQuestionService, type QuestionService } from "./question/service.js"
 import { createRunner } from "./runner/index.js"
-import { createCompactionManager } from "./session/compaction.js"
 import { createSystemContextManager } from "./session/context.js"
 import { createSessionManager, type SessionManager } from "./session/runtime.js"
 import { createSessionStore, type SessionStore } from "./session/store.js"
@@ -104,10 +102,8 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   })
   const store = createSessionStore(config)
   const hub = createEventHub(logger)
-  const llm = createLLMClient(toLLMClientConfig(config), logger.child("llm"))
   const permissions = createPermissionService({ config, logger: logger.child("permission") })
   const questions = createQuestionService()
-  const compaction = createCompactionManager({ config, llm, logger: logger.child("compaction") })
   const context = createSystemContextManager()
   const tools = createToolRegistry({
     tools: createBuiltinTools(config.web),
@@ -121,6 +117,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     hub,
     agents,
     compactionProfiles,
+    modelConfigs,
     logger: logger.child("session"),
   })
   const workspaces = createWorkspaceManager({
@@ -136,13 +133,12 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
 
   const runner = createRunner({
     config,
-    llm,
     sessions,
     agents,
     tools,
     permissions,
     questions,
-    compaction,
+    modelConfigs,
     compactionProfiles,
     context,
     hub,

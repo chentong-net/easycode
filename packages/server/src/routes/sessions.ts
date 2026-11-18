@@ -14,6 +14,7 @@ import {
   RenameSessionRequest,
   SessionListResponse,
   SessionResponse,
+  SessionConfigurationRequest,
   SessionTaskResponse,
 } from "@easycode/protocol"
 import {
@@ -79,9 +80,15 @@ export const sessionRoutes: FastifyPluginAsyncZod<SessionRoutesOptions> =
               {
                 directory: request.body.directory,
                 ...(request.body.title === undefined ? {} : { title: request.body.title }),
+                ...(request.body.modelConfigID === undefined
+                  ? {}
+                  : { modelConfigID: request.body.modelConfigID }),
                 ...(request.body.compactionProfileID === undefined
                   ? {}
                   : { compactionProfileID: request.body.compactionProfileID }),
+                ...(request.body.reasoningEffort === undefined
+                  ? {}
+                  : { reasoningEffort: request.body.reasoningEffort }),
               },
             ),
           )
@@ -208,6 +215,27 @@ export const sessionRoutes: FastifyPluginAsyncZod<SessionRoutesOptions> =
         await requireSession(core, request.params.sessionID)
         const task = await core.sessions.task(request.params.sessionID)
         return success({ task: task ?? null })
+      },
+    )
+
+    app.put(
+      "/:sessionID/configuration",
+      {
+        schema: {
+          params: SessionParams,
+          body: SessionConfigurationRequest,
+          response: { 200: ApiResponse(SessionResponse) },
+        },
+      },
+      async (request) => {
+        await requireSession(core, request.params.sessionID)
+        try {
+          return success(
+            await core.sessions.configure(request.params.sessionID, request.body),
+          )
+        } catch (error) {
+          throw businessFailure(error)
+        }
       },
     )
 

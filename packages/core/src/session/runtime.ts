@@ -1,22 +1,33 @@
 import { mkdir } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import type { Delivery, DurableEvent, JsonObject, Message, Session, TaskState } from "@easycode/schema"
+import type {
+  Delivery,
+  DurableEvent,
+  JsonObject,
+  Message,
+  ReasoningEffort,
+  Session,
+  TaskState,
+} from "@easycode/schema"
 import { zeroUsage } from "@easycode/schema"
 
 import type { AgentRegistry } from "../agent.js"
 import {
   CODING_COMPACTION_PROFILE_ID,
-  COMPACTION_PROFILE_MISSING_MESSAGE,
-  COMPACTION_PROFILE_REQUIRED_MESSAGE,
   type CompactionProfileService,
 } from "../compaction-profile/index.js"
 import type { CoreConfig } from "../config.js"
 import type { EventHub } from "../events.js"
 import { newInputID, newSessionID } from "../id.js"
 import { createLogger, type Logger } from "../log.js"
+import {
+  REASONING_EFFORT_UNSUPPORTED_MESSAGE,
+  type ModelConfigService,
+} from "../model-config/index.js"
 import { expandHome } from "../util/path.js"
 import { applyEvent, createProjectedState, projectEvents, type ProjectedState } from "./projector.js"
+import { resolveSessionConfiguration } from "./configuration.js"
 import type { NewDurableEvent, PersistedContext, SessionStore } from "./store.js"
 import { finishTask, moveTaskPhase } from "./task.js"
 
@@ -55,6 +66,7 @@ export interface SessionManagerDeps {
   hub: EventHub
   agents: AgentRegistry
   compactionProfiles: CompactionProfileService
+  modelConfigs: ModelConfigService
   logger?: Logger
 }
 
@@ -65,7 +77,9 @@ export interface SessionManager {
   create(input: {
     directory: string
     title?: string
+    modelConfigID?: string
     compactionProfileID?: string
+    reasoningEffort?: ReasoningEffort
   }): Promise<Session>
   get(sessionID: string): Promise<Session | undefined>
   /** 投影后的消息列表 */
@@ -83,6 +97,15 @@ export interface SessionManager {
   pin(sessionID: string, pinned: boolean): Promise<Session>
   /** 修改会话标题，不改变会话目录或历史消息。 */
   rename(sessionID: string, title: string): Promise<Session>
+  /** 仅用于补齐旧会话缺失的运行配置；完整会话不允许修改。 */
+  configure(
+    sessionID: string,
+    input: {
+      modelConfigID?: string
+      compactionProfileID?: string
+      reasoningEffort?: ReasoningEffort
+    },
+  ): Promise<Session>
   /** 永久删除会话；运行中的会话会先被中断。 */
   delete(sessionID: string): Promise<void>
   /** 批量删除会话并返回逐项结果。单项失败不会阻止其它删除。 */
@@ -249,7 +272,9 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
   const create = async (input: {
     directory: string
     title?: string
+    modelConfigID?: string
     compactionProfileID?: string
+    reasoningEffort?: ReasoningEffort
   }): Promise<Session> => {
     const directory = resolve(expandHome(input.directory))
     await mkdir(directory, { recursive: true })
@@ -257,19 +282,31 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     const now = Date.now()
     const agent = deps.agents.default()
     const compactionProfileID = input.compactionProfileID ?? CODING_COMPACTION_PROFILE_ID
+    const modelConfig = input.modelConfigID
+      ? await deps.modelConfigs.require(input.modelConfigID)
+      : await deps.modelConfigs.first()
     await deps.compactionProfiles.require(compactionProfileID)
-    const session: Session = {
+    if (
+      input.reasoningEffort !== undefined &&
+      !modelConfig.supportedReasoningEfforts.includes(input.reasoningEffort)
+    ) {
+      throw new Error(REASONING_EFFORT_UNSUPPORTED_MESSAGE)
+    }
+    const candidate: Session = {
       id: newSessionID(),
       title: input.title?.trim() || DEFAULT_SESSION_TITLE,
       directory,
       agent: agent.id,
+      modelConfigID: modelConfig.id,
       compactionProfileID,
-      model: deps.config.model,
+      ...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
+      model: modelConfig.model,
       createdAt: now,
       updatedAt: now,
       usage: zeroUsage(),
       todos: [],
     }
+    const session = candidate
 
     const handle = createHandle(createProjectedState(session))
     handles.set(session.id, handle)
@@ -279,8 +316,10 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       sessionID: session.id,
       directory,
       agent: agent.id,
+      modelConfigID: modelConfig.id,
       compactionProfileID,
       model: session.model,
+      reasoningEffort: session.reasoningEffort,
     })
     return session
   }
@@ -290,11 +329,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     input: { text: string; content?: JsonObject[]; delivery?: Delivery },
   ) => {
     const handle = await load(sessionID)
-    const compactionProfileID = handle.state.session.compactionProfileID
-    if (!compactionProfileID) throw new Error(COMPACTION_PROFILE_REQUIRED_MESSAGE)
-    if (!(await deps.compactionProfiles.get(compactionProfileID))) {
-      throw new Error(COMPACTION_PROFILE_MISSING_MESSAGE)
-    }
+    await resolveSessionConfiguration(handle.state.session, deps)
     const text = input.text.trim()
     const content = [
       ...(text.length > 0 ? [{ type: "text" as const, text }] : []),
@@ -318,6 +353,70 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     driver?.wake(handle.id)
 
     return { inputID }
+  }
+
+  const configure = async (
+    sessionID: string,
+    input: {
+      modelConfigID?: string
+      compactionProfileID?: string
+      reasoningEffort?: ReasoningEffort
+    },
+  ): Promise<Session> => {
+    const handle = await load(sessionID)
+    const current = handle.state.session
+    if (
+      (current.modelConfigID !== undefined &&
+        input.modelConfigID !== undefined &&
+        current.modelConfigID !== input.modelConfigID) ||
+      (current.compactionProfileID !== undefined &&
+        input.compactionProfileID !== undefined &&
+        current.compactionProfileID !== input.compactionProfileID) ||
+      (current.reasoningEffort !== undefined &&
+        input.reasoningEffort !== undefined &&
+        current.reasoningEffort !== input.reasoningEffort)
+    ) {
+      throw new Error("会话运行配置已锁定，不能修改")
+    }
+
+    const modelConfigID = current.modelConfigID ?? input.modelConfigID
+    const compactionProfileID = current.compactionProfileID ?? input.compactionProfileID
+    const reasoningEffort = current.reasoningEffort ?? input.reasoningEffort
+    const modelConfig = modelConfigID === undefined
+      ? undefined
+      : await deps.modelConfigs.require(modelConfigID)
+    const candidate: Session = {
+      ...current,
+      ...(modelConfigID === undefined ? {} : { modelConfigID }),
+      ...(compactionProfileID === undefined ? {} : { compactionProfileID }),
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+      ...(modelConfig === undefined ? {} : { model: modelConfig.model }),
+    }
+    const resolved = await resolveSessionConfiguration(candidate, deps)
+    const changed =
+      current.modelConfigID !== resolved.modelConfig.id ||
+      current.compactionProfileID !== resolved.compactionProfile.id ||
+      current.reasoningEffort !== resolved.reasoningEffort
+    if (!changed) return current
+
+    await handle.append({
+      type: "session.updated",
+      sessionID,
+      timestamp: Date.now(),
+      model: resolved.modelConfig.model,
+      modelConfigID: resolved.modelConfig.id,
+      compactionProfileID: resolved.compactionProfile.id,
+      ...(resolved.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: resolved.reasoningEffort }),
+    })
+    logger.info("已补齐会话运行配置", {
+      sessionID,
+      modelConfigID: resolved.modelConfig.id,
+      compactionProfileID: resolved.compactionProfile.id,
+      reasoningEffort: resolved.reasoningEffort,
+    })
+    return handle.state.session
   }
 
   const remove = async (sessionID: string): Promise<void> => {
@@ -352,6 +451,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     messages: async (sessionID) => [...(await load(sessionID)).state.messages],
     task: async (sessionID) => (await load(sessionID)).state.task,
     prompt,
+    configure,
     interrupt: async (sessionID) => {
       if (!driver) return
       await driver.interrupt(sessionID)

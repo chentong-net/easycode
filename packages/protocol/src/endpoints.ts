@@ -103,6 +103,9 @@ export const Endpoints = {
   /** 会话当前任务进度 */
   task: (sessionID: string): string => `${sessionPath(sessionID)}/task`,
 
+  /** 补齐旧会话缺失的模型、推理等级或压缩配置 */
+  sessionConfiguration: (sessionID: string): string => `${sessionPath(sessionID)}/configuration`,
+
   /** 提交一条用户输入 */
   prompt: (sessionID: string): string => `${sessionPath(sessionID)}/prompt`,
 

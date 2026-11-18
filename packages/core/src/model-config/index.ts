@@ -12,7 +12,10 @@ import type { Logger } from "../log.js"
 import { writeFileAtomic } from "../util/atomic.js"
 
 export const MODEL_CONFIG_DIRECTORY = "config"
+export const MODEL_CONFIG_REQUIRED_MESSAGE = "请选择模型配置。"
 export const MODEL_CONFIG_MISSING_MESSAGE = "当前会话使用的模型配置已不存在，无法继续对话。"
+export const REASONING_EFFORT_REQUIRED_MESSAGE = "请选择思考强度。"
+export const REASONING_EFFORT_UNSUPPORTED_MESSAGE = "当前会话使用的思考强度不受模型配置支持。"
 
 export interface ModelConfigMutation {
   name: string

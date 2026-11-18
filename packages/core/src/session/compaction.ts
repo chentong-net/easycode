@@ -2,6 +2,7 @@ import type {
   CompactionProfile,
   Message,
   Part,
+  ReasoningEffort,
   TaskState,
   Todo,
   ToolDefinition,
@@ -98,6 +99,9 @@ export interface CompactInput {
   handle: SessionHandle
   /** 本次压缩捕获的不可变配置快照。 */
   profile: CompactionProfile
+  /** 当前会话选择的模型；省略时兼容旧的固定模型路径。 */
+  model?: string
+  reasoningEffort?: ReasoningEffort
   /** 当前 epoch（上下文周期）的 baseline（基线）序号 */
   baselineSeq: number
   /** 本次请求的完整系统提示词（agent 提示词 + baseline） */
@@ -177,7 +181,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       id: messageID,
       sessionID: input.handle.id,
       reason,
-      model: state.session.model,
+      model: input.model ?? state.session.model,
       compactionProfileID: input.profile.id,
       compactionProfileRevision: input.profile.revision,
       baselineSeq: input.baselineSeq,
@@ -388,7 +392,10 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
         text = ""
         finish = ""
         const request: LLMRequest = {
-          model: input.handle.state.session.model,
+          model: input.model ?? input.handle.state.session.model,
+          ...(input.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: input.reasoningEffort }),
           system: [systemPrompt],
           messages: [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
           // 摘要请求不带工具：避免模型在总结时又去调用工具

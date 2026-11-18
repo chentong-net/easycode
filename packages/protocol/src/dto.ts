@@ -244,11 +244,25 @@ export const CreateSessionRequest = z.object({
   /** 工作目录绝对路径。以 `~` 开头时由 Core 展开为用户主目录。 */
   directory: z.string().min(1, "工作目录不能为空"),
   title: z.string().optional(),
+  modelConfigID: z.string().trim().min(1).optional(),
   /** 创建后不可修改；省略时使用内置 coding。 */
   compactionProfileID: z.string().trim().min(1).optional(),
+  reasoningEffort: ReasoningEffort.optional(),
 })
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequest>
+
+/** 仅用于旧会话补齐缺失的运行配置。 */
+export const SessionConfigurationRequest = z
+  .object({
+    modelConfigID: z.string().trim().min(1).optional(),
+    compactionProfileID: z.string().trim().min(1).optional(),
+    reasoningEffort: ReasoningEffort.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, "至少需要一项运行配置")
+
+export type SessionConfigurationRequest = z.infer<typeof SessionConfigurationRequest>
 
 /** 准备一张本地图片，返回可直接加入模型 content 的 JSON。 */
 export const ImagePrepareRequest = z.object({

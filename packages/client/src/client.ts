@@ -31,6 +31,7 @@ import {
   RuntimeConfigResponse,
   RuntimeConfigUpdateRequest,
   SessionListResponse,
+  SessionConfigurationRequest,
   SessionResponse,
   SessionTaskResponse,
   WorkspaceListResponse,
@@ -159,6 +160,11 @@ export interface EasyCodeClient {
     deleteMany(sessionIDs: string[], signal?: AbortSignal): Promise<z.infer<typeof BulkDeleteSessionsResponse>>
     messages(sessionID: string, signal?: AbortSignal): Promise<Message[]>
     task(sessionID: string, signal?: AbortSignal): Promise<SessionTaskResponse>
+    configure(
+      sessionID: string,
+      input: SessionConfigurationRequest,
+      signal?: AbortSignal,
+    ): Promise<Session>
     /** 提交输入。接口只负责接纳，执行进度通过事件流反馈。 */
     prompt(sessionID: string, input: PromptRequest, signal?: AbortSignal): Promise<PromptResponse>
     interrupt(sessionID: string, signal?: AbortSignal): Promise<void>
@@ -286,6 +292,15 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
       messages: (sessionID, signal) => get(transport, Endpoints.messages(sessionID), MessageListResponse, signal),
 
       task: (sessionID, signal) => get(transport, Endpoints.task(sessionID), SessionTaskResponse, signal),
+
+      configure: (sessionID, input, signal) =>
+        put(
+          transport,
+          Endpoints.sessionConfiguration(sessionID),
+          input,
+          SessionResponse,
+          signal,
+        ),
 
       prompt: (sessionID, input, signal) => post(transport, Endpoints.prompt(sessionID), input, PromptResponse, signal),
 
