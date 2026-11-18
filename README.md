@@ -1,6 +1,6 @@
 # EasyCode
 
-EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。联网、日志和迁移入口配置保存在 `~/easycode/.easycode/config.toml`；模型连接与思考强度保存在模型配置列表中，上下文压缩提示词通过独立的「压缩配置」管理。
+EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。联网与日志配置保存在 `~/easycode/.easycode/config/runtime.json`；模型连接与思考强度保存在独立模型配置中，上下文压缩提示词通过独立的「压缩配置」管理。
 
 术语说明：本文保留 `epoch`、`baseline`、`checkpoint`、`snapshot`、`compaction` 的原始英文，并在首次出现时用括号标注中文提示。`epoch` 指一次冻结上下文从建立到重建的周期，不是模型训练中的 epoch，也不是 Unix 时间起点。
 
@@ -54,15 +54,15 @@ packages/
 npm install
 ```
 
-首次启动会自动创建 `~/easycode/.easycode/config.toml`。可以双击桌面端后通过「运行配置」填写，也可以直接编辑该 TOML 文件；联网与日志设置保存后重启应用生效。
+首次启动会自动创建 `~/easycode/.easycode/config/runtime.json`。可以双击桌面端后通过「运行配置」填写，也可以直接编辑该 JSON 文件；联网与日志设置保存后重启应用生效。
 
-设置页的「模型配置」以列表展示多个模型。每项独立保存接口地址、模型 ID、API Key、上下文窗口、输出上限、温度、附加请求头和多个支持的 reasoning level。首次升级时，当前 `config.toml` 的模型字段会迁移成 `~/easycode/.easycode/config/<ID>.json` 中的第一项；之后模型配置保存后立即热加载。
+设置页的「模型配置」以列表展示多个模型。每项独立保存接口地址、模型 ID、API Key、上下文窗口、输出上限、温度、附加请求头和多个支持的 reasoning level。不存在 `runtime.json` 且检测到旧版 `config.toml` 时，会自动迁移模型字段和运行设置，并把旧文件重命名为带时间戳的 `.bak`；之后运行时不再读取 TOML。
 
 Reasoning Level 由后端提供，当前包括 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`。模型配置一个 level 都不选时，请求不会发送 `reasoning_effort`，使用模型自身默认行为；选择了 `none` 等具体值时，正常会话、标题生成和所有 Compaction 摘要请求都会复用该值。
 
-桌面端设置按钮左侧的机器人按钮打开「压缩配置管理」。内置 `Coding` 直接定义在代码中，始终可用且不可修改或删除；用户新建的压缩配置保存在 `~/easycode/.easycode/compaction-profile/`，保存后立即热加载。新建会话时在输入框底部选择压缩配置，首次发送、创建会话后绑定关系不可再修改。
+桌面端设置按钮左侧的机器人按钮打开「压缩配置管理」。内置 `Coding` 直接定义在代码中，始终可用且不可修改或删除；用户新建的压缩配置保存在 `~/easycode/.easycode/compaction-profile/`，保存后立即热加载。新建和已有会话都可以重新选择压缩配置，每次选择都会更新会话元数据。
 
-新建会话的输入框按「模型配置 → 压缩配置 → 思考强度」顺序选择。第三级仅在所选模型配置声明了至少一个 level 时出现，并且只显示该模型配置支持的 level。模型配置、压缩配置和思考强度都属于会话元信息；会话完整后锁定。旧会话缺失任一配置时会显示「请选择」，后端提供一次补齐接口，保存成功后同样锁定。
+新建会话的输入框按「模型配置 → 压缩配置 → 思考强度」顺序选择。第三级仅在所选模型配置声明了至少一个 level 时出现，并且只显示该模型配置支持的 level。模型配置、压缩配置和思考强度都只以 ID/值写入会话元信息，每次重新选择都会更新会话；配置文件被删除后可以直接改选其他有效配置。会话运行期间暂不允许切换，避免请求中途换配置。
 
 配置文件示例：
 
@@ -98,7 +98,8 @@ log_level = "info"
 
 - EasyCode 根目录：`~/easycode`
 - 内部状态目录：`~/easycode/.easycode`
-- 配置文件：`~/easycode/.easycode/config.toml`
+- 运行配置：`~/easycode/.easycode/config/runtime.json`
+- 模型配置：`~/easycode/.easycode/config/<模型配置ID>.json`
 - 会话、快照、日志和工具输出：`~/easycode/.easycode/`
 
 密钥只保存在配置文件与 Core 进程内，HTTP 配置接口只返回是否已配置。环境变量不会覆盖配置文件中的值。
@@ -235,7 +236,7 @@ npm run package --workspace @easycode/desktop
 
 服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，工作区、会话、消息、工具调用均经 HTTP 接口完成。窗口标题栏与侧边栏、会话标题栏合并，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
 
-开发模式与打包后的桌面端都读取同一个固定配置文件 `~/easycode/.easycode/config.toml`。
+开发模式与打包后的桌面端都读取同一个固定运行配置 `~/easycode/.easycode/config/runtime.json`。
 
 ## 运行机制
 
@@ -278,7 +279,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 规则形如 `{ action, resource, effect }`，按顺序求值并取最后一条同时匹配 `action` 与 `resource` 的规则，`effect` 取值为 `allow` / `ask` / `deny`，默认裁决为 `ask`。一次调用涉及多个资源时取最严格的结果。
 
-内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取用户项目中的 `.env`、`.env.*` 以及 `~/easycode/.easycode/config.toml` 时需要确认，结构化编辑配置文件的请求同样需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认允许，配置对应 Provider 与 API Key 即表示接受第三方服务调用。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。这些 `.env` 规则针对被 Agent 操作的项目，与 EasyCode 自身配置无关。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
+内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取用户项目中的 `.env`、`.env.*` 以及 `~/easycode/.easycode/config/*.json` 时需要确认，结构化编辑运行或模型配置文件的请求同样需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认允许，配置对应 Provider 与 API Key 即表示接受第三方服务调用。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。这些 `.env` 规则针对被 Agent 操作的项目，与 EasyCode 自身配置无关。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
 
 ### 内置工具
 
@@ -351,8 +352,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | POST | `/api/compaction-profiles` | 新建并保存用户压缩配置 |
 | PUT | `/api/compaction-profiles/{id}` | 更新用户压缩配置并增加 revision |
 | DELETE | `/api/compaction-profiles/{id}` | 删除用户压缩配置；不检查会话引用 |
-| GET | `/api/config` | 可安全展示的 TOML 运行配置；密钥只返回是否已配置 |
-| PUT | `/api/config` | 保存模型、联网和日志配置到固定 `config.toml` |
+| GET | `/api/config` | 可安全展示的 JSON 运行配置；密钥只返回是否已配置 |
+| PUT | `/api/config` | 保存联网和日志配置到固定 `config/runtime.json` |
 | POST | `/api/config/test` | 使用当前表单值发送一次最小模型请求，验证连接 |
 | GET | `/api/workspaces` | 工作区列表 |
 | POST | `/api/workspaces` | 添加工作区，请求体为 `{ directory }` |
@@ -368,7 +369,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | POST | `/api/sessions/{id}/pin` | 置顶或取消置顶，请求体为 `{ pinned }` |
 | GET | `/api/sessions/{id}/messages` | 消息列表（事件日志的投影结果） |
 | GET | `/api/sessions/{id}/task` | 当前任务工作记忆与进度 |
-| PUT | `/api/sessions/{id}/configuration` | 仅为旧会话补齐缺失的模型、压缩配置或思考强度 |
+| PUT | `/api/sessions/{id}/configuration` | 更新会话的模型、压缩配置或思考强度 |
 | POST | `/api/sessions/{id}/prompt` | 提交用户输入，请求体为 `{ text, delivery? }` |
 | POST | `/api/sessions/{id}/interrupt` | 中断当前回合 |
 | GET | `/api/sessions/{id}/events` | 事件流（SSE，`after` 参数指定起始 `seq`） |
@@ -383,12 +384,12 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 ```
 ~/easycode/.easycode/
-  config.toml                       固定运行配置
+  config/runtime.json               联网与日志运行配置
+  config/<模型配置ID>.json          独立模型连接与 reasoning levels
   workspaces.json                   工作区名称与目录注册表
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
   sessions/<会话ID>/context.json    epoch（上下文周期）状态
-  config/<模型配置ID>.json          独立模型配置与支持的 reasoning levels
   compaction-profile/<ID>.json      用户压缩配置，内置 Coding 不在此目录
   compaction-contexts/<会话ID>/<YYYYMMDDHHmm-t预估Token-compactionID>/
                                      compaction 前后的完整请求与摘要诊断
@@ -412,9 +413,10 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 ## 当前实现范围
 
 - 单个内置 agent：`build`，每 30 步进入一次续行检查点，默认不设置固定任务上限
-- `config.toml` 中的模型字段作为首次迁移来源；会话实际使用的模型来自独立的模型配置列表并支持热加载
+- 旧版 `config.toml` 只作为一次性迁移来源；运行时固定读取 `config/runtime.json`
+- 会话实际使用的模型来自独立模型配置列表，配置保存后热加载
 - 模型配置支持多个 reasoning level；空列表不发送 `reasoning_effort`，非空时由用户为会话选择
-- 新旧会话都持久化 `modelConfigID`、`compactionProfileID` 和可选 `reasoningEffort`；旧会话缺失时可显式补齐一次
+- 新旧会话都持久化 `modelConfigID`、`compactionProfileID` 和可选 `reasoningEffort`，重新选择时更新
 - 运行配置覆盖模型连接、上下文与输出预算、温度、附加请求头、网页搜索/读取和日志级别；数据目录固定，不参与配置；接口不会返回已保存的密钥明文
 - 基础工具覆盖读代码、找代码、改代码、执行命令、管进度和必要澄清
 - 配置 Provider 与对应 API Key 后增加网页搜索或网页读取
@@ -423,7 +425,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 默认工作区不能删除，但其会话仍可逐个删除；删除其他工作区只清理 EasyCode 记录，不删除本地目录和文件
 - 桌面端启动时不自动打开历史会话，工作区默认折叠；用户在新会话页面首次发送后才在默认工作区创建会话并展开该工作区
 - 多会话：会话创建时绑定工作区目录，之后保持绑定
-- 会话创建时同时绑定压缩配置并持久化 `compactionProfileID`；配置选择在首次发送后立即锁定
+- 会话元信息只保存模型配置 ID、压缩配置 ID 和 reasoning level，不复制 API Key 或完整配置文件
 - 删除压缩配置不检查会话引用；会话继续对话时如果配置已丢失，会直接报错且不调用模型，历史仍可查看
 - 用户压缩配置保存后立即热加载，正在执行的压缩继续使用开始时捕获的配置快照
 - 首轮回答结束后使用一次独立模型请求生成会话标题，失败时回退到输入摘要
