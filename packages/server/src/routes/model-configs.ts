@@ -1,7 +1,9 @@
 import type { ModelConfig } from "@easycode/schema"
 import { REASONING_EFFORTS } from "@easycode/schema"
+import { createLLMClient, toModelLLMClientConfig } from "@easycode/core"
 import {
   ApiResponse,
+  ModelConnectionTestResponse,
   ModelConfigListResponse,
   ModelConfigResponse,
   ModelConfigUpdateRequest,
@@ -115,6 +117,61 @@ export const modelConfigRoutes: FastifyPluginAsyncZod<ModelConfigRoutesOptions> 
           return success(null)
         } catch (error) {
           throw businessFailure(error)
+        }
+      },
+    )
+
+    app.post(
+      "/:configID/test",
+      {
+        schema: {
+          params: ConfigParams,
+          response: { 200: ApiResponse(ModelConnectionTestResponse) },
+        },
+      },
+      async (request) => {
+        const startedAt = Date.now()
+        let config: ModelConfig
+        try {
+          config = await core.modelConfigs.require(request.params.configID)
+        } catch (error) {
+          throw businessFailure(error)
+        }
+
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 15_000)
+        timer.unref()
+        try {
+          const client = createLLMClient(toModelLLMClientConfig(config))
+          for await (const event of client.stream({
+            model: config.model,
+            system: ["你是模型连通性测试。收到用户输入后只回复 OK，不要调用任何工具。"],
+            messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }],
+            tools: [],
+            maxOutputTokens: 16,
+            sessionID: `easycode_model_test_${config.id}`,
+            signal: controller.signal,
+          })) {
+            if (event.type === "finish") break
+          }
+          return success({
+            ok: true,
+            latencyMs: Date.now() - startedAt,
+            model: config.model,
+          })
+        } catch (error) {
+          return success({
+            ok: false,
+            latencyMs: Date.now() - startedAt,
+            model: config.model,
+            message: controller.signal.aborted
+              ? "连接测试超时（15000ms）"
+              : error instanceof Error
+                ? error.message
+                : String(error),
+          })
+        } finally {
+          clearTimeout(timer)
         }
       },
     )

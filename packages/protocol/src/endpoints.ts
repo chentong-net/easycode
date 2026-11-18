@@ -52,6 +52,9 @@ export const Endpoints = {
   /** 单个模型配置：GET 详情 / PUT 更新 / DELETE 删除 */
   modelConfig: (id: string): string => `${API_PREFIX}/model-configs/${segment(id)}`,
 
+  /** 使用已保存的模型配置测试连接 */
+  testModelConfig: (id: string): string => `${API_PREFIX}/model-configs/${segment(id)}/test`,
+
   /** 压缩配置集合：GET 列表 / POST 新建 */
   compactionProfiles: (): string => `${API_PREFIX}/compaction-profiles`,
 

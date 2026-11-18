@@ -117,6 +117,58 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
   assert.equal(deleted.statusCode, 200)
 })
 
+test("旧会话可补齐缺失的思考强度并在之后锁定", async () => {
+  const modelResponse = await application.app.inject({
+    method: "POST",
+    url: "/api/model-configs",
+    headers: jsonHeaders,
+    payload: {
+      name: "分级模型",
+      baseUrl: "https://example.com/v1",
+      model: "reasoning-model",
+      contextWindow: 64_000,
+      maxOutputTokens: 4_096,
+      supportedReasoningEfforts: ["none", "low", "high"],
+      apiKey: "secret",
+    },
+  })
+  assert.equal(modelResponse.statusCode, 200)
+  const modelConfigID = (modelResponse.json().data as { id: string }).id
+
+  const sessionResponse = await application.app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    headers: jsonHeaders,
+    payload: {
+      directory,
+      modelConfigID,
+      compactionProfileID: "coding",
+    },
+  })
+  assert.equal(sessionResponse.statusCode, 200)
+  const session = sessionResponse.json().data as { id: string; reasoningEffort?: string }
+  assert.equal(session.reasoningEffort, undefined)
+
+  const configuredResponse = await application.app.inject({
+    method: "PUT",
+    url: `/api/sessions/${session.id}/configuration`,
+    headers: jsonHeaders,
+    payload: { reasoningEffort: "high" },
+  })
+  assert.equal(configuredResponse.statusCode, 200)
+  assert.equal(configuredResponse.json().data.reasoningEffort, "high")
+
+  const lockedResponse = await application.app.inject({
+    method: "PUT",
+    url: `/api/sessions/${session.id}/configuration`,
+    headers: jsonHeaders,
+    payload: { reasoningEffort: "low" },
+  })
+  assert.equal(lockedResponse.statusCode, 200)
+  assert.equal(lockedResponse.json().code, -1)
+  assert.match(lockedResponse.json().message, /已锁定/)
+})
+
 const testConfig = (): CoreConfig => ({
   baseUrl: "https://seed.example.com/v1",
   apiKey: "seed-key",

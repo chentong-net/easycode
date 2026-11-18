@@ -119,6 +119,7 @@ export interface EasyCodeClient {
       input: ModelConfigUpdateRequest,
       signal?: AbortSignal,
     ): Promise<ModelConfigResponse>
+    test(id: string, signal?: AbortSignal): Promise<ModelConnectionTestResponse>
     delete(id: string, signal?: AbortSignal): Promise<void>
   }
   compactionProfiles: {
@@ -212,6 +213,14 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
         post(transport, Endpoints.modelConfigs(), input, ModelConfigResponse, signal),
       update: (id, input, signal) =>
         put(transport, Endpoints.modelConfig(id), input, ModelConfigResponse, signal),
+      test: (id, signal) =>
+        post(
+          transport,
+          Endpoints.testModelConfig(id),
+          undefined,
+          ModelConnectionTestResponse,
+          signal,
+        ),
       delete: async (id, signal) => {
         await requestDelete(transport, Endpoints.modelConfig(id), signal)
       },
