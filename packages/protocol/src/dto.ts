@@ -10,6 +10,8 @@ import {
   PermissionRequest,
   QuestionAnswer,
   QuestionRequest,
+  ReasoningEffort,
+  REASONING_EFFORTS,
   Session,
   TaskState,
   Workspace,
@@ -65,6 +67,79 @@ export type AgentInfo = z.infer<typeof AgentInfo>
 export const AgentListResponse = z.array(AgentInfo)
 
 export type AgentListResponse = z.infer<typeof AgentListResponse>
+
+const ReasoningEfforts = z
+  .array(ReasoningEffort)
+  .max(REASONING_EFFORTS.length)
+  .superRefine((values, context) => {
+    const seen = new Set<ReasoningEffort>()
+    for (const [index, value] of values.entries()) {
+      if (seen.has(value)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index],
+          message: `Reasoning Level 重复：${value}`,
+        })
+      }
+      seen.add(value)
+    }
+  })
+
+/** 设置页和非密钥展示需要的模型配置摘要。 */
+export const ModelConfigSummary = z.object({
+  id: z.string(),
+  revision: z.number().int().positive(),
+  name: z.string(),
+  model: z.string(),
+  contextWindow: z.number().int().positive(),
+  maxOutputTokens: z.number().int().positive(),
+  supportedReasoningEfforts: z.array(ReasoningEffort),
+  hasApiKey: z.boolean(),
+  hasExtraHeaders: z.boolean(),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+})
+
+export type ModelConfigSummary = z.infer<typeof ModelConfigSummary>
+
+export const ModelConfigListResponse = z.object({
+  /** Reasoning Level 的唯一后端枚举来源。 */
+  availableReasoningEfforts: z.array(ReasoningEffort),
+  configs: z.array(ModelConfigSummary),
+})
+
+export type ModelConfigListResponse = z.infer<typeof ModelConfigListResponse>
+
+/** 完整模型配置的安全展示视图，不包含 API Key 和附加请求头原值。 */
+export const ModelConfigResponse = ModelConfigSummary.omit({
+  hasApiKey: true,
+  hasExtraHeaders: true,
+}).extend({
+  baseUrl: z.string(),
+  temperature: z.number().finite().optional(),
+  hasApiKey: z.boolean(),
+  hasExtraHeaders: z.boolean(),
+})
+
+export type ModelConfigResponse = z.infer<typeof ModelConfigResponse>
+
+export const ModelConfigUpdateRequest = z
+  .object({
+    name: z.string().trim().min(1, "配置名称不能为空").max(80),
+    baseUrl: z.string().trim().url("接口地址必须是合法 URL"),
+    model: z.string().trim().min(1, "模型 ID 不能为空"),
+    contextWindow: z.number().int().positive(),
+    maxOutputTokens: z.number().int().positive(),
+    temperature: z.number().finite().optional().nullable(),
+    supportedReasoningEfforts: ReasoningEfforts,
+    /** 省略保持旧值，null 清除，非空字符串替换。 */
+    apiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
+    /** 省略保持旧值，null 清除，分号或换行分隔。 */
+    extraHeaders: z.string().trim().min(1).max(20_000).optional().nullable(),
+  })
+  .strict()
+
+export type ModelConfigUpdateRequest = z.infer<typeof ModelConfigUpdateRequest>
 
 /** 压缩配置列表项。完整提示词只在编辑详情时返回。 */
 export const CompactionProfileSummary = z.object({

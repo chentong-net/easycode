@@ -21,6 +21,7 @@ import { failure } from "./response.js"
 import { compactionProfileRoutes } from "./routes/compaction-profiles.js"
 import { configRoutes } from "./routes/config.js"
 import { imageRoutes } from "./routes/images.js"
+import { modelConfigRoutes } from "./routes/model-configs.js"
 import { sessionRoutes } from "./routes/sessions.js"
 import { systemRoutes } from "./routes/system.js"
 import { workspaceRoutes } from "./routes/workspaces.js"
@@ -125,6 +126,7 @@ export const createApplication = async (
 
   const routeContext = { core: options.core, logger: options.logger }
   await app.register(systemRoutes, { prefix: "/api", ...routeContext })
+  await app.register(modelConfigRoutes, { prefix: "/api/model-configs", ...routeContext })
   await app.register(compactionProfileRoutes, {
     prefix: "/api/compaction-profiles",
     ...routeContext,

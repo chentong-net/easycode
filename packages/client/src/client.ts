@@ -16,6 +16,9 @@ import {
   MessageListResponse,
   ModelConnectionTestRequest,
   ModelConnectionTestResponse,
+  ModelConfigListResponse,
+  ModelConfigResponse,
+  ModelConfigUpdateRequest,
   PermissionListResponse,
   PinWorkspaceRequest,
   PinSessionRequest,
@@ -106,6 +109,17 @@ export interface EasyCodeClient {
   health(signal?: AbortSignal): Promise<HealthResponse>
   /** 可用的 agent 列表 */
   agents(signal?: AbortSignal): Promise<AgentInfo[]>
+  modelConfigs: {
+    list(signal?: AbortSignal): Promise<ModelConfigListResponse>
+    get(id: string, signal?: AbortSignal): Promise<ModelConfigResponse>
+    create(input: ModelConfigUpdateRequest, signal?: AbortSignal): Promise<ModelConfigResponse>
+    update(
+      id: string,
+      input: ModelConfigUpdateRequest,
+      signal?: AbortSignal,
+    ): Promise<ModelConfigResponse>
+    delete(id: string, signal?: AbortSignal): Promise<void>
+  }
   compactionProfiles: {
     list(signal?: AbortSignal): Promise<CompactionProfileListResponse>
     get(id: string, signal?: AbortSignal): Promise<CompactionProfileResponse>
@@ -184,6 +198,18 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
   return {
     health: (signal) => get(transport, Endpoints.health(), HealthResponse, signal),
     agents: (signal) => get(transport, Endpoints.agents(), AgentListResponse, signal),
+
+    modelConfigs: {
+      list: (signal) => get(transport, Endpoints.modelConfigs(), ModelConfigListResponse, signal),
+      get: (id, signal) => get(transport, Endpoints.modelConfig(id), ModelConfigResponse, signal),
+      create: (input, signal) =>
+        post(transport, Endpoints.modelConfigs(), input, ModelConfigResponse, signal),
+      update: (id, input, signal) =>
+        put(transport, Endpoints.modelConfig(id), input, ModelConfigResponse, signal),
+      delete: async (id, signal) => {
+        await requestDelete(transport, Endpoints.modelConfig(id), signal)
+      },
+    },
 
     compactionProfiles: {
       list: (signal) =>
