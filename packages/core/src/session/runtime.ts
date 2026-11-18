@@ -5,6 +5,11 @@ import type { Delivery, DurableEvent, JsonObject, Message, Session, TaskState } 
 import { zeroUsage } from "@easycode/schema"
 
 import type { AgentRegistry } from "../agent.js"
+import {
+  CODING_COMPACTION_PROFILE_ID,
+  COMPACTION_PROFILE_MISSING_MESSAGE,
+  type CompactionProfileService,
+} from "../compaction-profile/index.js"
 import type { CoreConfig } from "../config.js"
 import type { EventHub } from "../events.js"
 import { newInputID, newSessionID } from "../id.js"
@@ -48,6 +53,7 @@ export interface SessionManagerDeps {
   store: SessionStore
   hub: EventHub
   agents: AgentRegistry
+  compactionProfiles: CompactionProfileService
   logger?: Logger
 }
 
@@ -55,7 +61,11 @@ export interface SessionManager {
   /** 全部会话，按更新时间倒序。侧边栏使用。 */
   list(): Promise<Session[]>
   /** 在工作目录下创建会话 */
-  create(input: { directory: string; title?: string }): Promise<Session>
+  create(input: {
+    directory: string
+    title?: string
+    compactionProfileID?: string
+  }): Promise<Session>
   get(sessionID: string): Promise<Session | undefined>
   /** 投影后的消息列表 */
   messages(sessionID: string): Promise<Message[]>
@@ -235,18 +245,24 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     }
   }
 
-  const create = async (input: { directory: string; title?: string }): Promise<Session> => {
+  const create = async (input: {
+    directory: string
+    title?: string
+    compactionProfileID?: string
+  }): Promise<Session> => {
     const directory = resolve(expandHome(input.directory))
     await mkdir(directory, { recursive: true })
 
     const now = Date.now()
     const agent = deps.agents.default()
+    const compactionProfileID = input.compactionProfileID ?? CODING_COMPACTION_PROFILE_ID
+    await deps.compactionProfiles.require(compactionProfileID)
     const session: Session = {
       id: newSessionID(),
       title: input.title?.trim() || DEFAULT_SESSION_TITLE,
       directory,
       agent: agent.id,
-      compactionProfileID: "coding",
+      compactionProfileID,
       model: deps.config.model,
       createdAt: now,
       updatedAt: now,
@@ -262,6 +278,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       sessionID: session.id,
       directory,
       agent: agent.id,
+      compactionProfileID,
       model: session.model,
     })
     return session
@@ -272,6 +289,9 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     input: { text: string; content?: JsonObject[]; delivery?: Delivery },
   ) => {
     const handle = await load(sessionID)
+    if (!(await deps.compactionProfiles.get(handle.state.session.compactionProfileID))) {
+      throw new Error(COMPACTION_PROFILE_MISSING_MESSAGE)
+    }
     const text = input.text.trim()
     const content = [
       ...(text.length > 0 ? [{ type: "text" as const, text }] : []),

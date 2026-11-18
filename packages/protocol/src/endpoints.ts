@@ -18,7 +18,7 @@ export const API_PREFIX = "/api"
  * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
  * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
-export const API_VERSION = "0.13.0"
+export const API_VERSION = "0.14.0"
 
 /** 鉴权头名称。桌面端的渲染进程从 preload 拿到 token 后放在这个头里。 */
 export const AUTH_HEADER = "x-easycode-token"
@@ -45,6 +45,12 @@ export const Endpoints = {
 
   /** 可用的 agent 列表 */
   agents: (): string => `${API_PREFIX}/agents`,
+
+  /** 压缩配置集合：GET 列表 / POST 新建 */
+  compactionProfiles: (): string => `${API_PREFIX}/compaction-profiles`,
+
+  /** 单个压缩配置：GET 详情 / PUT 更新 / DELETE 删除 */
+  compactionProfile: (id: string): string => `${API_PREFIX}/compaction-profiles/${segment(id)}`,
 
   /** 运行配置：GET 读取 / PUT 保存 */
   config: (): string => `${API_PREFIX}/config`,

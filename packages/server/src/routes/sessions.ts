@@ -76,12 +76,13 @@ export const sessionRoutes: FastifyPluginAsyncZod<SessionRoutesOptions> =
         try {
           return success(
             await core.sessions.create(
-              request.body.title === undefined
-                ? { directory: request.body.directory }
-                : {
-                    directory: request.body.directory,
-                    title: request.body.title,
-                  },
+              {
+                directory: request.body.directory,
+                ...(request.body.title === undefined ? {} : { title: request.body.title }),
+                ...(request.body.compactionProfileID === undefined
+                  ? {}
+                  : { compactionProfileID: request.body.compactionProfileID }),
+              },
             ),
           )
         } catch (error) {

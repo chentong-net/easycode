@@ -7,6 +7,34 @@ import { createApplication } from "./app.js"
 
 const token = "test-token"
 const auth = { "x-easycode-token": token }
+const codingProfile = {
+  schemaVersion: 1,
+  id: "coding",
+  revision: 1,
+  builtIn: true,
+  name: "Coding",
+  description: "默认编程压缩配置",
+  systemPrompt: "整理编程记忆",
+  includeTaskState: true,
+  instructions: {
+    initial: "整理",
+    chunk: "分块",
+    merge: "合并",
+    correction: "纠正",
+  },
+  sectionTitles: {
+    previousSummary: "已有摘要",
+    taskState: "当前任务状态",
+    transcript: "待压缩对话",
+    instruction: "压缩要求",
+  },
+  format: {
+    type: "headings",
+    headings: ["目标", "下一步"],
+  },
+  createdAt: 0,
+  updatedAt: 0,
+}
 
 let application: Awaited<ReturnType<typeof createApplication>>
 
@@ -26,6 +54,27 @@ before(async () => {
     },
     agents: {
       all: () => [{ id: "build", description: "test" }],
+    },
+    compactionProfiles: {
+      list: async () => [codingProfile],
+      require: async (id: string) => {
+        if (id === "coding") return codingProfile
+        throw new Error(`压缩配置不存在：${id}`)
+      },
+      create: async (input: { name: string }) => ({
+        ...codingProfile,
+        id: "custom",
+        revision: 1,
+        builtIn: false,
+        name: input.name,
+      }),
+      update: async () => {
+        throw new Error("内置 Coding 压缩配置不能修改")
+      },
+      get: async (id: string) => (id === "coding" ? codingProfile : undefined),
+      delete: async () => {
+        throw new Error("内置 Coding 压缩配置不能删除")
+      },
     },
     sessions: {
       get: async () => undefined,
@@ -58,7 +107,7 @@ test("health uses the success envelope", async () => {
     message: "SUCCESS",
     data: {
       ok: true,
-      version: "0.13.0",
+      version: "0.14.0",
       model: "test-model",
       contextWindow: 128_000,
       maxOutputTokens: 8_192,
@@ -81,6 +130,41 @@ test("image platforms are loaded through the success envelope", async () => {
       defaultPlatform: "base64",
       platforms: [{ platform: "base64", displayName: "Base64" }],
     },
+  })
+})
+
+test("compaction profile list only exposes summaries", async () => {
+  const response = await application.app.inject({
+    method: "GET",
+    url: "/api/compaction-profiles",
+    headers: auth,
+  })
+
+  assert.equal(response.statusCode, 200)
+  const data = response.json().data as Array<Record<string, unknown>>
+  assert.deepEqual(data[0], {
+    id: "coding",
+    name: "Coding",
+    description: "默认编程压缩配置",
+    revision: 1,
+    builtIn: true,
+    createdAt: 0,
+    updatedAt: 0,
+  })
+  assert.equal("systemPrompt" in data[0]!, false)
+})
+
+test("built-in compaction profile cannot be deleted", async () => {
+  const response = await application.app.inject({
+    method: "DELETE",
+    url: "/api/compaction-profiles/coding",
+    headers: auth,
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), {
+    code: -1,
+    message: "内置 Coding 压缩配置不能删除",
   })
 })
 

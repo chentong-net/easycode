@@ -97,7 +97,14 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     logger: logger.child("tool"),
   })
 
-  const sessions = createSessionManager({ config, store, hub, agents, logger: logger.child("session") })
+  const sessions = createSessionManager({
+    config,
+    store,
+    hub,
+    agents,
+    compactionProfiles,
+    logger: logger.child("session"),
+  })
   const workspaces = createWorkspaceManager({
     dataDir: config.dataDir,
     listSessions: () => sessions.list(),

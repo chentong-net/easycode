@@ -2,6 +2,8 @@ import { z } from "zod"
 
 import {
   Delivery,
+  CompactionProfile,
+  CompactionProfileDraft,
   JsonObjectSchema,
   Message,
   PermissionReply,
@@ -63,6 +65,32 @@ export type AgentInfo = z.infer<typeof AgentInfo>
 export const AgentListResponse = z.array(AgentInfo)
 
 export type AgentListResponse = z.infer<typeof AgentListResponse>
+
+/** 压缩配置列表项。完整提示词只在编辑详情时返回。 */
+export const CompactionProfileSummary = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  revision: z.number().int().positive(),
+  builtIn: z.boolean(),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+})
+
+export type CompactionProfileSummary = z.infer<typeof CompactionProfileSummary>
+
+export const CompactionProfileListResponse = z.array(CompactionProfileSummary)
+
+export type CompactionProfileListResponse = z.infer<typeof CompactionProfileListResponse>
+
+/** 新建或更新压缩配置时由客户端提交的可编辑字段。 */
+export const CompactionProfileDraftRequest = CompactionProfileDraft
+
+export type CompactionProfileDraftRequest = z.infer<typeof CompactionProfileDraftRequest>
+
+export const CompactionProfileResponse = CompactionProfile
+
+export type CompactionProfileResponse = z.infer<typeof CompactionProfileResponse>
 
 /** 会话列表与详情。直接复用语义类型，因为它就是界面要展示的东西。 */
 export const SessionListResponse = z.array(Session)
@@ -141,6 +169,8 @@ export const CreateSessionRequest = z.object({
   /** 工作目录绝对路径。以 `~` 开头时由 Core 展开为用户主目录。 */
   directory: z.string().min(1, "工作目录不能为空"),
   title: z.string().optional(),
+  /** 创建后不可修改；省略时使用内置 coding。 */
+  compactionProfileID: z.string().trim().min(1).optional(),
 })
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequest>

@@ -3,6 +3,9 @@ import {
   AgentListResponse,
   BulkDeleteSessionsRequest,
   BulkDeleteSessionsResponse,
+  CompactionProfileDraftRequest,
+  CompactionProfileListResponse,
+  CompactionProfileResponse,
   CreateWorkspaceRequest,
   DeleteWorkspaceResponse,
   Endpoints,
@@ -103,6 +106,17 @@ export interface EasyCodeClient {
   health(signal?: AbortSignal): Promise<HealthResponse>
   /** 可用的 agent 列表 */
   agents(signal?: AbortSignal): Promise<AgentInfo[]>
+  compactionProfiles: {
+    list(signal?: AbortSignal): Promise<CompactionProfileListResponse>
+    get(id: string, signal?: AbortSignal): Promise<CompactionProfileResponse>
+    create(input: CompactionProfileDraftRequest, signal?: AbortSignal): Promise<CompactionProfileResponse>
+    update(
+      id: string,
+      input: CompactionProfileDraftRequest,
+      signal?: AbortSignal,
+    ): Promise<CompactionProfileResponse>
+    delete(id: string, signal?: AbortSignal): Promise<void>
+  }
   images: {
     /** 当前服务端已注册的图片平台。 */
     platforms(signal?: AbortSignal): Promise<ImagePlatformListResponseType>
@@ -170,6 +184,20 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
   return {
     health: (signal) => get(transport, Endpoints.health(), HealthResponse, signal),
     agents: (signal) => get(transport, Endpoints.agents(), AgentListResponse, signal),
+
+    compactionProfiles: {
+      list: (signal) =>
+        get(transport, Endpoints.compactionProfiles(), CompactionProfileListResponse, signal),
+      get: (id, signal) =>
+        get(transport, Endpoints.compactionProfile(id), CompactionProfileResponse, signal),
+      create: (input, signal) =>
+        post(transport, Endpoints.compactionProfiles(), input, CompactionProfileResponse, signal),
+      update: (id, input, signal) =>
+        put(transport, Endpoints.compactionProfile(id), input, CompactionProfileResponse, signal),
+      delete: async (id, signal) => {
+        await requestDelete(transport, Endpoints.compactionProfile(id), signal)
+      },
+    },
 
     images: {
       platforms: (signal) =>

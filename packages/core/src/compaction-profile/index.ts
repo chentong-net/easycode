@@ -13,6 +13,8 @@ import { writeFileAtomic } from "../util/atomic.js"
 
 import { CODING_COMPACTION_PROFILE_ID, codingCompactionProfile } from "./coding.js"
 
+export { CODING_COMPACTION_PROFILE_ID, codingCompactionProfile } from "./coding.js"
+
 export const COMPACTION_PROFILE_DIRECTORY = "compaction-profile"
 export const COMPACTION_PROFILE_MISSING_MESSAGE = "当前会话使用的压缩配置已不存在，无法继续对话。"
 
