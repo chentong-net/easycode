@@ -35,6 +35,13 @@ export const Session = z.object({
   directory: z.string(),
   /** 当前使用的 agent，首版只有 build */
   agent: z.string(),
+  /**
+   * 当前会话绑定的压缩配置。
+   *
+   * 配置在首次发送、创建会话时固定，之后不能切换。旧会话没有该字段时兼容为
+   * 内置 coding，避免升级后无法重放已有事件。
+   */
+  compactionProfileID: z.string().trim().min(1).default("coding"),
   /** 当前使用的模型 id */
   model: z.string(),
   createdAt: z.number(),

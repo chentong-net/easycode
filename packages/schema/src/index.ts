@@ -8,6 +8,7 @@
  * 因为渲染进程会直接引用这里的类型。
  */
 export * from "./agent.js"
+export * from "./compaction-profile.js"
 export * from "./event.js"
 export * from "./id.js"
 export * from "./image.js"
