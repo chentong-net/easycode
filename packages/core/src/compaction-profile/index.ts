@@ -10,6 +10,7 @@ import {
 
 import type { Logger } from "../log.js"
 import { writeFileAtomic } from "../util/atomic.js"
+import { BUILD_SYSTEM_PROMPT } from "../agent.js"
 
 import { CODING_COMPACTION_PROFILE_ID, codingCompactionProfile } from "./coding.js"
 
@@ -64,7 +65,12 @@ export const createCompactionProfileService = (
     }
 
     try {
-      const parsed = CompactionProfile.safeParse(JSON.parse(raw))
+      const value: unknown = JSON.parse(raw)
+      const migrated =
+        typeof value === "object" && value !== null && !("agentSystemPrompt" in value)
+          ? { ...value, agentSystemPrompt: BUILD_SYSTEM_PROMPT }
+          : value
+      const parsed = CompactionProfile.safeParse(migrated)
       if (!parsed.success) {
         deps.logger?.warn("忽略结构无效的压缩配置", {
           id,

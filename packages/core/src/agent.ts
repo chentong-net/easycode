@@ -24,7 +24,7 @@ export const DEFAULT_AGENT_ID = "build"
  *    baseline 系统上下文提供，混在这里会破坏「前缀逐字节稳定」这个前提。
  * 2. 强调「不做用户没要求的事」，这是 agent 最容易失控的地方。
  */
-const BUILD_SYSTEM_PROMPT = `你是 EasyCode，一个运行在用户本地机器上的编程助手，可以通过工具读写文件、检索代码、执行命令。
+export const BUILD_SYSTEM_PROMPT = `你是 EasyCode，一个运行在用户本地机器上的编程助手，可以通过工具读写文件、检索代码、执行命令。
 
 工作方式：
 - 动手改代码之前，先把相关代码读清楚。不要基于猜测修改文件。

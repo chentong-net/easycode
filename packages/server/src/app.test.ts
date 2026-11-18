@@ -14,6 +14,7 @@ const codingProfile = {
   builtIn: true,
   name: "Coding",
   description: "默认编程压缩配置",
+  agentSystemPrompt: "你是一个编程助手。",
   systemPrompt: "整理编程记忆",
   includeTaskState: true,
   instructions: {

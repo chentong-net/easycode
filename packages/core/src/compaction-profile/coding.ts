@@ -1,5 +1,7 @@
 import { CompactionProfile } from "@easycode/schema"
 
+import { BUILD_SYSTEM_PROMPT } from "../agent.js"
+
 export const CODING_COMPACTION_PROFILE_ID = "coding"
 
 /** 内置编程压缩配置。它直接随代码发布，不依赖用户目录中的文件。 */
@@ -10,6 +12,7 @@ export const codingCompactionProfile = CompactionProfile.parse({
   builtIn: true,
   name: "Coding",
   description: "默认编程压缩配置",
+  agentSystemPrompt: BUILD_SYSTEM_PROMPT,
   systemPrompt: `你是一个 Coding Agent 的工作记忆压缩器，负责把较早对话整理成可供后续继续工作的结构化 checkpoint（检查点）。
 
 要求：

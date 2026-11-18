@@ -114,6 +114,7 @@ test("无效压缩配置返回明确业务错误", async () => {
 const profileDraft = (name: string) => ({
   name,
   description: "测试用压缩配置",
+  agentSystemPrompt: "你是一个聊天助手。",
   systemPrompt: "整理聊天记忆。",
   includeTaskState: false,
   instructions: {

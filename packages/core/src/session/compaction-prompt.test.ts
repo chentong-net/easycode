@@ -15,6 +15,7 @@ const profile = CompactionProfile.parse({
   revision: 1,
   builtIn: false,
   name: "小说创作",
+  agentSystemPrompt: "你是小说创作助手。",
   systemPrompt: "整理小说创作记忆。",
   includeTaskState: false,
   instructions: {

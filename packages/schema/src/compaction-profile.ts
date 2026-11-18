@@ -49,6 +49,9 @@ const CompactionProfileFields = z
   .object({
     name: z.string().trim().min(1, "名称不能为空").max(80, "名称不能超过 80 个字符"),
     description: z.string().trim().max(500, "描述不能超过 500 个字符").optional(),
+    /** 主对话模型使用的系统提示词，等价于场景的 BUILD_SYSTEM_PROMPT。 */
+    agentSystemPrompt: Prompt,
+    /** 压缩摘要器自身使用的系统提示词。 */
     systemPrompt: Prompt,
     includeTaskState: z.boolean(),
     instructions: Instructions,

@@ -20,6 +20,7 @@ import { describeError } from "./format"
 interface ProfileForm {
   name: string
   description: string
+  agentSystemPrompt: string
   systemPrompt: string
   includeTaskState: boolean
   instructions: CompactionProfileDraftRequest["instructions"]
@@ -32,6 +33,7 @@ type View = { kind: "list" } | { kind: "edit"; profileID?: string }
 const EMPTY_FORM: ProfileForm = {
   name: "",
   description: "",
+  agentSystemPrompt: "",
   systemPrompt: "",
   includeTaskState: false,
   instructions: {
@@ -328,10 +330,31 @@ export const CompactionProfilesDialog = ({
 
                   <section className="settings-section">
                     <div className="settings-section-heading">
-                      <h3>系统提示词</h3>
+                      <h3>会话系统提示词（BUILD）</h3>
+                      <span>用于当前会话的主对话模型</span>
                     </div>
                     <label className="settings-field">
-                      <span>定义摘要器角色和压缩原则</span>
+                      <span>定义角色、工作方式和行为边界</span>
+                      <textarea
+                        className="compaction-profile-textarea"
+                        value={form.agentSystemPrompt}
+                        onChange={(event) =>
+                          updateForm(setForm, setDirty, {
+                            agentSystemPrompt: event.target.value,
+                          })
+                        }
+                        rows={10}
+                      />
+                    </label>
+                  </section>
+
+                  <section className="settings-section">
+                    <div className="settings-section-heading">
+                      <h3>压缩系统提示词</h3>
+                      <span>仅用于生成上下文摘要</span>
+                    </div>
+                    <label className="settings-field">
+                      <span>定义摘要器角色、信息取舍和压缩原则</span>
                       <textarea
                         className="compaction-profile-textarea"
                         value={form.systemPrompt}
@@ -545,6 +568,7 @@ const updateSectionTitle = (
 const validateForm = (form: ProfileForm): string | undefined => {
   if (form.name.trim().length === 0) return "请填写压缩配置名称"
   const prompts = [
+    form.agentSystemPrompt,
     form.systemPrompt,
     form.instructions.initial,
     form.instructions.chunk,
@@ -564,6 +588,7 @@ const validateForm = (form: ProfileForm): string | undefined => {
 const toDraft = (form: ProfileForm): CompactionProfileDraftRequest => ({
   name: form.name.trim(),
   ...(form.description.trim().length === 0 ? {} : { description: form.description.trim() }),
+  agentSystemPrompt: form.agentSystemPrompt.trim(),
   systemPrompt: form.systemPrompt.trim(),
   includeTaskState: form.includeTaskState,
   instructions: {
@@ -587,6 +612,7 @@ const toDraft = (form: ProfileForm): CompactionProfileDraftRequest => ({
 const toForm = (profile: CompactionProfileResponse): ProfileForm => ({
   name: profile.name,
   description: profile.description ?? "",
+  agentSystemPrompt: profile.agentSystemPrompt,
   systemPrompt: profile.systemPrompt,
   includeTaskState: profile.includeTaskState,
   instructions: { ...profile.instructions },

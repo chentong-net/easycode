@@ -381,7 +381,10 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     // 3. 组装请求：历史 + 工具定义 + 系统提示词（agent 提示词在前，baseline 在后）
     const messages = buildLLMMessages(handle.state, { baselineSeq: systemContext.baselineSeq })
     const tools = isFinal ? [] : deps.tools.definitions()
-    const system = [agent.system, systemContext.baseline].filter((part) => part.length > 0)
+    const system = buildMainSystemPrompt(
+      compactionProfile.agentSystemPrompt,
+      systemContext.baseline,
+    )
     if (isHardLimit) system.push(MAX_STEPS_PROMPT)
     else if (params.forceFinal) system.push(CHECKPOINT_STOP_PROMPT)
     else if (step >= (handle.state.task?.budget.softSteps ?? checkpointSteps)) system.push(SOFT_STEPS_PROMPT)
@@ -534,7 +537,10 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         const systemContext = await deps.context.ensure(params.handle)
         request = {
           ...request,
-          system: [params.agent.system, systemContext.baseline].filter((part) => part.length > 0),
+          system: buildMainSystemPrompt(
+            params.compactionProfile.agentSystemPrompt,
+            systemContext.baseline,
+          ),
           messages: buildLLMMessages(params.handle.state, { baselineSeq: systemContext.baselineSeq }),
         }
         await deps.compaction.recordAfter(compacted.backupID, request)
@@ -1438,6 +1444,12 @@ const SOFT_STEPS_PROMPT = `任务已经接近步数软上限。请立即评估�
 - 如果已经收集足够信息，进入收尾。
 - 如仍需要较多工作，请精简计划并保留最关键任务。
 - 不得把尚未执行的工作描述为已经完成。`
+
+/** 主对话请求的 system 前缀：场景 BUILD 提示词在前，冻结 baseline 在后。 */
+export const buildMainSystemPrompt = (
+  agentSystemPrompt: string,
+  baseline: string,
+): string[] => [agentSystemPrompt, baseline].filter((part) => part.length > 0)
 
 const TITLE_SYSTEM_PROMPT = `你负责为 Coding Agent 对话生成短标题。
 

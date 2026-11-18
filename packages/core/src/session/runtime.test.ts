@@ -50,6 +50,7 @@ test("会话持久化压缩配置，配置删除后拒绝继续对话", async ()
   })
   const custom = await compactionProfiles.create({
     name: "聊天",
+    agentSystemPrompt: "你是一个聊天助手。",
     systemPrompt: "整理聊天记忆。",
     includeTaskState: false,
     instructions: {
