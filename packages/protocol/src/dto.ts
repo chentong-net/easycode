@@ -245,19 +245,19 @@ export const CreateSessionRequest = z.object({
   directory: z.string().min(1, "工作目录不能为空"),
   title: z.string().optional(),
   modelConfigID: z.string().trim().min(1).optional(),
-  /** 创建后不可修改；省略时使用内置 coding。 */
+  /** 省略时使用内置 coding；之后可通过会话配置接口更新。 */
   compactionProfileID: z.string().trim().min(1).optional(),
   reasoningEffort: ReasoningEffort.optional(),
 })
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequest>
 
-/** 仅用于旧会话补齐缺失的运行配置。 */
+/** 更新会话运行配置；reasoningEffort 为 null 表示清除。 */
 export const SessionConfigurationRequest = z
   .object({
     modelConfigID: z.string().trim().min(1).optional(),
     compactionProfileID: z.string().trim().min(1).optional(),
-    reasoningEffort: ReasoningEffort.optional(),
+    reasoningEffort: ReasoningEffort.nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "至少需要一项运行配置")

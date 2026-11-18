@@ -27,7 +27,9 @@ import {
 } from "../model-config/index.js"
 import { expandHome } from "../util/path.js"
 import { applyEvent, createProjectedState, projectEvents, type ProjectedState } from "./projector.js"
-import { resolveSessionConfiguration } from "./configuration.js"
+import {
+  resolveSessionConfiguration,
+} from "./configuration.js"
 import type { NewDurableEvent, PersistedContext, SessionStore } from "./store.js"
 import { finishTask, moveTaskPhase } from "./task.js"
 
@@ -97,13 +99,13 @@ export interface SessionManager {
   pin(sessionID: string, pinned: boolean): Promise<Session>
   /** 修改会话标题，不改变会话目录或历史消息。 */
   rename(sessionID: string, title: string): Promise<Session>
-  /** 仅用于补齐旧会话缺失的运行配置；完整会话不允许修改。 */
+  /** 更新会话的模型、压缩配置和 reasoning effort。 */
   configure(
     sessionID: string,
     input: {
       modelConfigID?: string
       compactionProfileID?: string
-      reasoningEffort?: ReasoningEffort
+      reasoningEffort?: ReasoningEffort | null
     },
   ): Promise<Session>
   /** 永久删除会话；运行中的会话会先被中断。 */
@@ -360,71 +362,83 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     input: {
       modelConfigID?: string
       compactionProfileID?: string
-      reasoningEffort?: ReasoningEffort
+      reasoningEffort?: ReasoningEffort | null
     },
   ): Promise<Session> => {
+    if (driver?.isRunning(sessionID)) {
+      throw new Error("会话正在运行，暂不能更改运行配置")
+    }
     const handle = await load(sessionID)
     const current = handle.state.session
-    const currentModelConfig = current.modelConfigID === undefined
-      ? undefined
-      : await deps.modelConfigs.get(current.modelConfigID)
-    const currentEffortLocked =
-      current.reasoningEffort === undefined ||
-      currentModelConfig?.supportedReasoningEfforts.includes(current.reasoningEffort) === true
-    if (
-      (current.modelConfigID !== undefined &&
-        input.modelConfigID !== undefined &&
-        current.modelConfigID !== input.modelConfigID) ||
-      (current.compactionProfileID !== undefined &&
-        input.compactionProfileID !== undefined &&
-        current.compactionProfileID !== input.compactionProfileID) ||
-      (currentEffortLocked &&
-        current.reasoningEffort !== undefined &&
-        input.reasoningEffort !== undefined &&
-        current.reasoningEffort !== input.reasoningEffort)
-    ) {
-      throw new Error("会话运行配置已锁定，不能修改")
-    }
-
-    const modelConfigID = current.modelConfigID ?? input.modelConfigID
+    const modelConfigID = input.modelConfigID ?? current.modelConfigID
     const compactionProfileID = current.compactionProfileID ?? input.compactionProfileID
-    const reasoningEffort =
-      currentEffortLocked && current.reasoningEffort !== undefined
-        ? current.reasoningEffort
-        : (input.reasoningEffort ?? current.reasoningEffort)
-    const modelConfig = modelConfigID === undefined
-      ? undefined
-      : await deps.modelConfigs.require(modelConfigID)
+    const validateModel =
+      input.modelConfigID !== undefined || input.reasoningEffort !== undefined
+    const modelConfig =
+      validateModel && modelConfigID !== undefined
+        ? await deps.modelConfigs.require(modelConfigID)
+        : undefined
+    if (input.compactionProfileID !== undefined) {
+      if (compactionProfileID === undefined) throw new Error("请选择压缩配置。")
+      await deps.compactionProfiles.require(compactionProfileID)
+    }
+    let reasoningEffort: ReasoningEffort | undefined =
+      input.reasoningEffort === null
+        ? undefined
+        : input.reasoningEffort ?? current.reasoningEffort
+    if (input.reasoningEffort !== undefined && modelConfig === undefined) {
+      throw new Error("请选择模型配置。")
+    }
+    if (
+      input.modelConfigID !== undefined &&
+      input.reasoningEffort === undefined &&
+      reasoningEffort !== undefined &&
+      !modelConfig?.supportedReasoningEfforts.includes(reasoningEffort)
+    ) {
+      reasoningEffort = undefined
+    }
+    if (modelConfig?.supportedReasoningEfforts.length === 0) {
+      reasoningEffort = undefined
+    }
+    if (
+      reasoningEffort !== undefined &&
+      modelConfig !== undefined &&
+      !modelConfig.supportedReasoningEfforts.includes(reasoningEffort)
+    ) {
+      throw new Error("当前会话使用的思考强度不受模型配置支持。")
+    }
     const candidate: Session = {
       ...current,
       ...(modelConfigID === undefined ? {} : { modelConfigID }),
       ...(compactionProfileID === undefined ? {} : { compactionProfileID }),
-      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+      reasoningEffort,
       ...(modelConfig === undefined ? {} : { model: modelConfig.model }),
     }
-    const resolved = await resolveSessionConfiguration(candidate, deps)
     const changed =
-      current.modelConfigID !== resolved.modelConfig.id ||
-      current.compactionProfileID !== resolved.compactionProfile.id ||
-      current.reasoningEffort !== resolved.reasoningEffort
+      current.modelConfigID !== candidate.modelConfigID ||
+      current.compactionProfileID !== candidate.compactionProfileID ||
+      current.reasoningEffort !== candidate.reasoningEffort ||
+      current.model !== candidate.model
     if (!changed) return current
 
     await handle.append({
       type: "session.updated",
       sessionID,
       timestamp: Date.now(),
-      model: resolved.modelConfig.model,
-      modelConfigID: resolved.modelConfig.id,
-      compactionProfileID: resolved.compactionProfile.id,
-      ...(resolved.reasoningEffort === undefined
+      model: candidate.model,
+      ...(candidate.modelConfigID === undefined
         ? {}
-        : { reasoningEffort: resolved.reasoningEffort }),
+        : { modelConfigID: candidate.modelConfigID }),
+      ...(candidate.compactionProfileID === undefined
+        ? {}
+        : { compactionProfileID: candidate.compactionProfileID }),
+      reasoningEffort: candidate.reasoningEffort ?? null,
     })
-    logger.info("已补齐会话运行配置", {
+    logger.info("已更新会话运行配置", {
       sessionID,
-      modelConfigID: resolved.modelConfig.id,
-      compactionProfileID: resolved.compactionProfile.id,
-      reasoningEffort: resolved.reasoningEffort,
+      modelConfigID: candidate.modelConfigID,
+      compactionProfileID: candidate.compactionProfileID,
+      reasoningEffort: candidate.reasoningEffort,
     })
     return handle.state.session
   }

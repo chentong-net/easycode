@@ -3,6 +3,7 @@ import type {
   BulkDeleteSessionsResponse,
   CompactionProfileSummary,
   ModelConfigSummary,
+  SessionConfigurationRequest,
 } from "@easycode/protocol"
 import {
   isDurableEvent,
@@ -94,7 +95,7 @@ export interface EasyCodeStore {
   modelConfigs: ModelConfigSummary[]
   modelConfigID: string
   reasoningEffort: ReasoningEffort | ""
-  /** 三个会话运行配置均有效后锁定。 */
+  /** 会话运行期间锁定，空闲时允许重新选择。 */
   configurationLocked: boolean
   configurationComplete: boolean
 
@@ -141,6 +142,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const loadedWorkspace = useRef<string | undefined>(undefined)
   const listRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const keepNoSelection = useRef(true)
+  const configurationWrites = useRef<Promise<void>>(Promise.resolve())
   const [contextWindow, setContextWindow] = useState<number | undefined>()
   const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>()
   const [compactionProfiles, setCompactionProfiles] = useState<CompactionProfileSummary[]>([])
@@ -201,6 +203,26 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       if (!signal?.aborted) setError(describeError(cause))
     }
   }, [client])
+
+  const persistSessionConfiguration = useCallback(
+    (input: SessionConfigurationRequest): void => {
+      if (activeSessionID === undefined) return
+      const sessionID = activeSessionID
+      const operation = configurationWrites.current.then(async () => {
+        const updated = await client.sessions.configure(sessionID, input)
+        setSessions((previous) =>
+          sortSessions(previous.map((item) => (item.id === sessionID ? updated : item))),
+        )
+        setCurrentSession((previous) =>
+          previous?.id === sessionID ? updated : previous,
+        )
+      })
+      configurationWrites.current = operation.catch((cause: unknown) => {
+        setError(describeError(cause))
+      })
+    },
+    [activeSessionID, client.sessions],
+  )
 
   useEffect(
     () => () => {
@@ -705,24 +727,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           setCurrentSessionID(session.id)
           sessionID = session.id
         } else {
-          const current = scopedSessions.find((session) => session.id === sessionID)
-          const selected = modelConfigs.find(
-            (config) => config.id === (current?.modelConfigID ?? ""),
-          )
-          const locked =
-            current?.modelConfigID !== undefined &&
-            current.compactionProfileID !== undefined &&
-            (selected?.supportedReasoningEfforts.length === 0 ||
-              current.reasoningEffort !== undefined)
-          if (!locked) {
-            const updated = await client.sessions.configure(sessionID, configuration)
-            setSessions((previous) =>
-              sortSessions(
-                previous.map((item) => (item.id === sessionID ? updated : item)),
-              ),
-            )
-            if (activeSessionID === sessionID) setCurrentSession(updated)
-          }
+          await configurationWrites.current
         }
         await client.sessions.prompt(sessionID, {
           text,
@@ -741,7 +746,6 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       pendingCompactionProfileID,
       pendingModelConfigID,
       pendingReasoningEffort,
-      scopedSessions,
       workspace,
     ],
   )
@@ -788,27 +792,42 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const clearError = useCallback(() => setError(undefined), [])
   const refreshSessions = useCallback(() => setSessionListToken((token) => token + 1), [])
   const setPendingCompactionProfileID = useCallback(
-    (profileID: string) => setPendingCompactionProfileIDState(profileID),
-    [],
+    (profileID: string) => {
+      setPendingCompactionProfileIDState(profileID)
+      if (profileID.length > 0) {
+        persistSessionConfiguration({ compactionProfileID: profileID })
+      }
+    },
+    [persistSessionConfiguration],
   )
   const setModelConfigID = useCallback(
     (modelConfigID: string) => {
       setPendingModelConfigIDState(modelConfigID)
       const config = modelConfigs.find((item) => item.id === modelConfigID)
-      if (
+      const nextEffort =
         config !== undefined &&
-        (pendingReasoningEffort === "" ||
-          config.supportedReasoningEfforts.includes(pendingReasoningEffort))
-      ) {
-        return
+        pendingReasoningEffort !== "" &&
+        config.supportedReasoningEfforts.includes(pendingReasoningEffort)
+          ? pendingReasoningEffort
+          : ""
+      setPendingReasoningEffortState(nextEffort)
+      if (modelConfigID.length > 0) {
+        persistSessionConfiguration({
+          modelConfigID,
+          reasoningEffort: nextEffort === "" ? null : nextEffort,
+        })
       }
-      setPendingReasoningEffortState("")
     },
-    [modelConfigs, pendingReasoningEffort],
+    [modelConfigs, pendingReasoningEffort, persistSessionConfiguration],
   )
   const setReasoningEffort = useCallback(
-    (effort: ReasoningEffort | "") => setPendingReasoningEffortState(effort),
-    [],
+    (effort: ReasoningEffort | "") => {
+      setPendingReasoningEffortState(effort)
+      persistSessionConfiguration({
+        reasoningEffort: effort === "" ? null : effort,
+      })
+    },
+    [persistSessionConfiguration],
   )
 
   /* ---------------------------------------------------------------------- */
@@ -825,10 +844,6 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   )
 
   const mergedMessages = useMemo(() => mergeDeltas(visibleMessages, deltas), [visibleMessages, deltas])
-  const activeSessionSummary = useMemo(
-    () => scopedSessions.find((session) => session.id === activeSessionID),
-    [activeSessionID, scopedSessions],
-  )
   const selectedModelConfig = useMemo(
     () => modelConfigs.find((config) => config.id === pendingModelConfigID),
     [modelConfigs, pendingModelConfigID],
@@ -840,18 +855,6 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     (selectedModelConfig.supportedReasoningEfforts.length === 0 ||
       (pendingReasoningEffort !== "" &&
         selectedModelConfig.supportedReasoningEfforts.includes(pendingReasoningEffort)))
-  const persistedModelConfig = useMemo(
-    () => modelConfigs.find((config) => config.id === (activeSessionSummary?.modelConfigID ?? "")),
-    [activeSessionSummary?.modelConfigID, modelConfigs],
-  )
-  const persistedConfigurationComplete =
-    activeSessionSummary?.modelConfigID !== undefined &&
-    activeSessionSummary.compactionProfileID !== undefined &&
-    (persistedModelConfig?.supportedReasoningEfforts.length === 0 ||
-      (activeSessionSummary.reasoningEffort !== undefined &&
-        persistedModelConfig?.supportedReasoningEfforts.includes(
-          activeSessionSummary.reasoningEffort,
-        ) === true))
 
   return {
     allSessions: sessions,
@@ -867,20 +870,16 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     connected,
     loading,
     error,
-    contextWindow,
-    maxOutputTokens,
+    contextWindow: selectedModelConfig?.contextWindow ?? contextWindow,
+    maxOutputTokens: selectedModelConfig?.maxOutputTokens ?? maxOutputTokens,
     compactionProfiles,
     pendingCompactionProfileID,
     availableReasoningEfforts,
     modelConfigs,
-    compactionProfileID:
-      currentSession?.compactionProfileID ??
-      activeSessionSummary?.compactionProfileID ??
-      pendingCompactionProfileID,
+    compactionProfileID: pendingCompactionProfileID,
     modelConfigID: pendingModelConfigID,
     reasoningEffort: pendingReasoningEffort,
-    configurationLocked:
-      activeSessionID !== undefined && persistedConfigurationComplete,
+    configurationLocked: running,
     configurationComplete,
     selectSession,
     startNewSession,

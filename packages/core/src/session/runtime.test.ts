@@ -132,7 +132,7 @@ test("未指定时新会话使用内置 coding", async () => {
   assert.equal(session.compactionProfileID, "coding")
 })
 
-test("旧式缺失思考强度会提示选择，补齐后锁定", async () => {
+test("旧式缺失思考强度会提示选择，并且可以重新选择更新", async () => {
   const config = testConfig("levels")
   const compactionProfiles = createCompactionProfileService({
     dataDir: config.dataDir,
@@ -182,10 +182,27 @@ test("旧式缺失思考强度会提示选择，补齐后锁定", async () => {
   const configured = await sessions.configure(session.id, { reasoningEffort: "high" })
   assert.equal(configured.reasoningEffort, "high")
   assert.equal((await sessions.get(session.id))?.reasoningEffort, "high")
-  await assert.rejects(
-    sessions.configure(session.id, { reasoningEffort: "low" }),
-    /已锁定/,
-  )
+  const changed = await sessions.configure(session.id, { reasoningEffort: "low" })
+  assert.equal(changed.reasoningEffort, "low")
+  assert.equal((await sessions.get(session.id))?.reasoningEffort, "low")
+
+  const replacement = await modelConfigs.create({
+    name: "替换模型",
+    baseUrl: config.baseUrl,
+    model: "replacement-model",
+    contextWindow: 16_000,
+    maxOutputTokens: 1_024,
+    supportedReasoningEfforts: [],
+    apiKey: config.apiKey,
+  })
+  await modelConfigs.delete(levels.id)
+  const reselected = await sessions.configure(session.id, {
+    modelConfigID: replacement.id,
+    reasoningEffort: null,
+  })
+  assert.equal(reselected.modelConfigID, replacement.id)
+  assert.equal(reselected.reasoningEffort, undefined)
+  assert.equal(reselected.model, "replacement-model")
 })
 
 const testConfig = (suffix = "custom"): CoreConfig => ({

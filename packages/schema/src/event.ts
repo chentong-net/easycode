@@ -59,7 +59,7 @@ const SessionUpdated = z.object({
   model: z.string().optional(),
   modelConfigID: z.string().optional(),
   compactionProfileID: z.string().optional(),
-  reasoningEffort: ReasoningEffort.optional(),
+  reasoningEffort: ReasoningEffort.nullable().optional(),
   /** null 表示取消置顶。 */
   pinnedAt: z.number().int().positive().nullable().optional(),
 })

@@ -30,12 +30,11 @@ export interface ResolvedSessionConfiguration {
 }
 
 /**
- * 校验并解析会话绑定的全部运行配置。
+ * 解析会话当前选择的配置。
  *
- * 旧会话可能缺少模型配置或压缩配置；缺失时返回明确“请选择”错误，而不是
- * 静默使用全局默认值。
+ * reasoningEffort 可以为空，调用方需要完整配置时再判断模型是否要求选择。
  */
-export const resolveSessionConfiguration = async (
+export const resolveSessionSelection = async (
   session: Session,
   services: SessionConfigurationServices,
 ): Promise<ResolvedSessionConfiguration> => {
@@ -54,9 +53,28 @@ export const resolveSessionConfiguration = async (
     return { modelConfig, compactionProfile }
   }
 
-  if (session.reasoningEffort === undefined) throw new Error(REASONING_EFFORT_REQUIRED_MESSAGE)
-  if (!modelConfig.supportedReasoningEfforts.includes(session.reasoningEffort)) {
+  if (
+    session.reasoningEffort !== undefined &&
+    !modelConfig.supportedReasoningEfforts.includes(session.reasoningEffort)
+  ) {
     throw new Error(REASONING_EFFORT_UNSUPPORTED_MESSAGE)
   }
   return { modelConfig, compactionProfile, reasoningEffort: session.reasoningEffort }
+}
+
+/**
+ * 校验一套可直接发起模型调用的完整会话配置。
+ */
+export const resolveSessionConfiguration = async (
+  session: Session,
+  services: SessionConfigurationServices,
+): Promise<ResolvedSessionConfiguration> => {
+  const resolved = await resolveSessionSelection(session, services)
+  if (
+    resolved.modelConfig.supportedReasoningEfforts.length > 0 &&
+    resolved.reasoningEffort === undefined
+  ) {
+    throw new Error(REASONING_EFFORT_REQUIRED_MESSAGE)
+  }
+  return resolved
 }

@@ -99,7 +99,10 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       if (event.compactionProfileID !== undefined) {
         next.compactionProfileID = event.compactionProfileID
       }
-      if (event.reasoningEffort !== undefined) next.reasoningEffort = event.reasoningEffort
+      if (event.reasoningEffort !== undefined) {
+        if (event.reasoningEffort === null) delete next.reasoningEffort
+        else next.reasoningEffort = event.reasoningEffort
+      }
       if (event.usage !== undefined) next.usage = event.usage
       if (event.pinnedAt !== undefined) {
         if (event.pinnedAt === null) delete next.pinnedAt

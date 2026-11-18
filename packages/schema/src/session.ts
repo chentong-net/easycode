@@ -41,7 +41,7 @@ export const Session = z.object({
   /**
    * 当前会话绑定的压缩配置。
    *
-   * 配置在首次发送、创建会话时固定。旧会话没有该字段时由界面提示用户选择。
+   * 空闲时可通过会话配置接口重新选择；旧会话没有该字段时由界面提示用户选择。
    */
   compactionProfileID: z.string().trim().min(1).optional(),
   /**

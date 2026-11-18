@@ -117,7 +117,7 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
   assert.equal(deleted.statusCode, 200)
 })
 
-test("旧会话可补齐缺失的思考强度并在之后锁定", async () => {
+test("旧会话可补齐并重新选择思考强度", async () => {
   const modelResponse = await application.app.inject({
     method: "POST",
     url: "/api/model-configs",
@@ -158,15 +158,14 @@ test("旧会话可补齐缺失的思考强度并在之后锁定", async () => {
   assert.equal(configuredResponse.statusCode, 200)
   assert.equal(configuredResponse.json().data.reasoningEffort, "high")
 
-  const lockedResponse = await application.app.inject({
+  const changedResponse = await application.app.inject({
     method: "PUT",
     url: `/api/sessions/${session.id}/configuration`,
     headers: jsonHeaders,
     payload: { reasoningEffort: "low" },
   })
-  assert.equal(lockedResponse.statusCode, 200)
-  assert.equal(lockedResponse.json().code, -1)
-  assert.match(lockedResponse.json().message, /已锁定/)
+  assert.equal(changedResponse.statusCode, 200)
+  assert.equal(changedResponse.json().data.reasoningEffort, "low")
 })
 
 const testConfig = (): CoreConfig => ({

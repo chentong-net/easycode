@@ -300,7 +300,10 @@ export const Composer = ({
         </button>
 
         <div className="composer-actions">
-          <label className="composer-profile" title="选择模型配置">
+          <label
+            className="composer-profile"
+            title={configurationLocked ? "会话正在运行，暂不能更换模型配置" : "选择模型配置"}
+          >
             <select
               value={modelConfigID}
               onChange={(event) => onModelConfigChange(event.target.value)}
@@ -346,7 +349,10 @@ export const Composer = ({
             </select>
           </label>
           {selectedModel !== undefined && selectedModel.supportedReasoningEfforts.length > 0 && (
-            <label className="composer-profile" title="选择思考强度">
+            <label
+              className="composer-profile"
+              title={configurationLocked ? "会话正在运行，暂不能更换思考强度" : "选择思考强度"}
+            >
               <select
                 value={reasoningEffort}
                 onChange={(event) =>
@@ -405,7 +411,7 @@ const fallbackCodingProfile = (): CompactionProfileSummary => ({
 const profileTitle = (locked: boolean, missing: boolean, loading: boolean): string => {
   if (loading) return "正在读取当前会话的压缩配置"
   if (missing) return "当前会话使用的压缩配置已丢失"
-  if (locked) return "会话创建后不能更换压缩配置；如需更换请新建会话"
+  if (locked) return "会话正在运行，暂不能更换压缩配置"
   return "选择新会话使用的压缩配置"
 }
 
