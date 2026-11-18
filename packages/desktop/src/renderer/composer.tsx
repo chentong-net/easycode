@@ -200,7 +200,11 @@ export const Composer = ({
   const profileOptions = compactionProfiles.length
     ? compactionProfiles
     : [fallbackCodingProfile()]
-  const profileMissing = selectedProfile === undefined && compactionProfileID !== "coding"
+  const profilesLoaded = compactionProfiles.length > 0
+  const profileMissing =
+    profilesLoaded && selectedProfile === undefined && compactionProfileID !== "coding"
+  const profileLoading =
+    !profilesLoaded && selectedProfile === undefined && compactionProfileID !== "coding"
   const canSend =
     (draft.trim().length > 0 || hasReadyImage) &&
     allImagesReady &&
@@ -273,7 +277,10 @@ export const Composer = ({
         </button>
 
         <div className="composer-actions">
-          <label className="composer-profile" title={profileTitle(compactionProfileLocked, profileMissing)}>
+          <label
+            className="composer-profile"
+            title={profileTitle(compactionProfileLocked, profileMissing, profileLoading)}
+          >
             <Bot size={14} strokeWidth={ICON_STROKE} aria-hidden />
             <select
               value={compactionProfileID}
@@ -283,6 +290,9 @@ export const Composer = ({
             >
               {profileMissing && (
                 <option value={compactionProfileID}>压缩配置已丢失</option>
+              )}
+              {profileLoading && (
+                <option value={compactionProfileID}>正在读取压缩配置…</option>
               )}
               {profileOptions.map((profile) => (
                 <option value={profile.id} key={profile.id}>
@@ -328,7 +338,8 @@ const fallbackCodingProfile = (): CompactionProfileSummary => ({
   updatedAt: 0,
 })
 
-const profileTitle = (locked: boolean, missing: boolean): string => {
+const profileTitle = (locked: boolean, missing: boolean, loading: boolean): string => {
+  if (loading) return "正在读取当前会话的压缩配置"
   if (missing) return "当前会话使用的压缩配置已丢失"
   if (locked) return "会话创建后不能更换压缩配置；如需更换请新建会话"
   return "选择新会话使用的压缩配置"
