@@ -1856,7 +1856,7 @@ pre {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 24px 8px;
+  padding: 20px 24px;
 }
 
 .settings-loading {
