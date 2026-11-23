@@ -101,7 +101,7 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
       model: "reasoning-model",
       contextWindow: 128_000,
       maxOutputTokens: 8_192,
-      supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+      supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
       apiKey: null,
       extraHeaders: null,
       webSearchProvider: "",
@@ -121,7 +121,13 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
   assert.equal(updated.revision, 2)
   assert.equal(updated.hasApiKey, false)
   assert.equal(updated.hasExtraHeaders, false)
-  assert.deepEqual(updated.supportedReasoningEfforts, ["low", "medium", "high", "xhigh"])
+  assert.deepEqual(updated.supportedReasoningEfforts, [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ])
 
   const deleted = await application.app.inject({
     method: "DELETE",

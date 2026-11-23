@@ -79,14 +79,20 @@ test("TOML 模型配置支持创建、更新、保留或清除密钥以及删除
       model: "reasoning-model",
       contextWindow: 128_000,
       maxOutputTokens: 8_192,
-      supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+      supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
       headers: undefined,
     }),
   )
   assert.equal(updated.config.revision, 2)
   assert.equal(updated.runtime.apiKey, "secret")
   assert.deepEqual(updated.runtime.headers, { "x-test": "yes" })
-  assert.deepEqual(updated.config.supportedReasoningEfforts, ["low", "medium", "high", "xhigh"])
+  assert.deepEqual(updated.config.supportedReasoningEfforts, [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ])
 
   const cleared = await service.update(
     created.config.id,

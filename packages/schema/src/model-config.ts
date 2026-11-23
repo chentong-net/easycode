@@ -8,6 +8,7 @@ export const REASONING_EFFORTS = [
   "medium",
   "high",
   "xhigh",
+  "max",
 ] as const
 
 export const ReasoningEffort = z.enum(REASONING_EFFORTS)

@@ -58,7 +58,7 @@ npm install
 
 设置页的「模型配置」以 ID 为文件名展示多个 TOML。每项独立保存接口地址、模型 ID、API Key、上下文窗口、输出上限、温度、附加请求头、联网配置、日志和多个支持的 reasoning level。设置页底部只有一个「保存配置」按钮，一次保存当前选中的完整 TOML。
 
-Reasoning Level 由后端提供，当前包括 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`。模型配置一个 level 都不选时，第三级下拉框不出现；配置了 level 但会话选择“不指定”时，请求同样不发送 `reasoning_effort`，使用模型自身默认行为。显式选择具体值时，正常会话和标题生成会复用该值；compaction 摘要请求刻意不继承 reasoning，避免额外推理占用已经紧张的 32K 窗口。
+Reasoning Level 由后端提供，当前包括 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。模型配置一个 level 都不选时，第三级下拉框不出现；配置了 level 但会话选择“不指定”时，请求同样不发送 `reasoning_effort`，使用模型自身默认行为。显式选择具体值时，正常会话和标题生成会复用该值；compaction 摘要请求刻意不继承 reasoning，避免额外推理占用已经紧张的 32K 窗口。
 
 桌面端设置按钮左侧的机器人按钮打开「提示配置管理」。内置「编程」配置直接定义在代码中，始终可用且不可修改或删除；用户新建的提示配置保存在 `~/easycode/.easycode/prompt/`，保存后立即热加载。旧 `compaction-profile/` 仅在读取时用于字段迁移。新建和已有会话都可以重新选择提示配置，每次选择都会更新会话元数据。
 
