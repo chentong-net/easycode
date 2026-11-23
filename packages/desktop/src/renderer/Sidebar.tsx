@@ -16,7 +16,6 @@ import {
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
-import { toDisplayPath } from "./bridge"
 import type { EasyCodeStore } from "./store"
 import { isDefaultWorkspace, type WorkspaceState } from "./workspace"
 
@@ -160,7 +159,7 @@ export const Sidebar = ({
 
   const deleteWorkspace = async (item: Workspace): Promise<void> => {
     setMenu(undefined)
-    if (isDefaultWorkspace(item)) return
+    if (isDefaultWorkspace(item, workspace.runtimeInfo?.workspaceDirectory)) return
     const sessionCount = store.allSessions.filter((session) => session.directory === item.directory).length
     const records = sessionCount === 0 ? "" : `及其 ${sessionCount} 个会话记录`
     const confirmed = window.confirm(
@@ -170,7 +169,9 @@ export const Sidebar = ({
     const result = await workspace.deleteWorkspace(item.id)
     if (result === undefined) return
     if (workspace.activeWorkspace?.id === item.id) {
-      const defaultWorkspace = workspace.workspaces.find(isDefaultWorkspace)
+      const defaultWorkspace = workspace.workspaces.find((candidate) =>
+        isDefaultWorkspace(candidate, workspace.runtimeInfo?.workspaceDirectory),
+      )
       if (defaultWorkspace !== undefined) {
         setCollapsed((current) => {
           const next = new Set(current)
@@ -441,7 +442,7 @@ export const Sidebar = ({
                   ) : (
                     <span className="workspace-name">{item.name}</span>
                   )}
-                  <span className="workspace-path">({toDisplayPath(item.directory)})</span>
+                  <span className="workspace-path">({item.directory})</span>
                 </div>
               </div>
 
@@ -574,7 +575,7 @@ export const Sidebar = ({
             <Pencil size={14} />
             重命名
           </button>
-          {!isDefaultWorkspace(menuWorkspace) && (
+          {!isDefaultWorkspace(menuWorkspace, workspace.runtimeInfo?.workspaceDirectory) && (
             <>
               <button
                 type="button"

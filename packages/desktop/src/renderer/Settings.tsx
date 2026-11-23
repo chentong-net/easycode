@@ -1,6 +1,7 @@
 import type { EasyCodeClient } from "@easycode/client"
 import {
   type ImagePlatformInfo,
+  type RuntimeInfoResponse,
   type WebProvider,
 } from "@easycode/protocol"
 import { RotateCw, X } from "lucide-react"
@@ -62,11 +63,13 @@ const EMPTY_CLEAR: ClearState = {
 
 export const SettingsDialog = ({
   client,
+  runtimeInfo,
   open,
   onClose,
   onModelConfigsChanged,
 }: {
   client: EasyCodeClient
+  runtimeInfo?: RuntimeInfoResponse
   open: boolean
   onClose: () => void
   onModelConfigsChanged: () => Promise<void>
@@ -426,7 +429,7 @@ export const SettingsDialog = ({
                     </Field>
                   </div>
                   <p className="settings-path">
-                    数据目录：<code>~/easycode/.easycode</code>
+                    数据目录：<code>{runtimeInfo?.dataDir ?? "尚未获取"}</code>
                   </p>
                 </section>
               </>

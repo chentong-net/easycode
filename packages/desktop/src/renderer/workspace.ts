@@ -1,18 +1,18 @@
 import type { EasyCodeClient } from "@easycode/client"
-import { DEFAULT_WORKSPACE_DIRECTORY } from "@easycode/protocol"
+import type { RuntimeInfoResponse } from "@easycode/protocol"
 import type { Workspace } from "@easycode/schema"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { selectDirectory, toDisplayPath } from "./bridge"
+import { selectDirectory } from "./bridge"
 import { describeError } from "./format"
 
 export interface WorkspaceState {
   workspaces: Workspace[]
+  /** Server 返回的 Core 默认路径。 */
+  runtimeInfo: RuntimeInfoResponse | undefined
   activeWorkspace: Workspace | undefined
   /** 当前工作区目录，供会话列表过滤和新建会话使用。 */
   directory: string | undefined
-  /** 展示用路径，例如 ~/easycode。 */
-  label: string | undefined
   loading: boolean
   selecting: boolean
   error: string | undefined
@@ -27,6 +27,7 @@ export interface WorkspaceState {
 
 export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfoResponse | undefined>()
   const [activeWorkspaceID, setActiveWorkspaceID] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
   const [selecting, setSelecting] = useState(false)
@@ -36,10 +37,16 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
     const controller = new AbortController()
     void (async () => {
       try {
-        const list = await client.workspaces.list(controller.signal)
+        const [paths, list] = await Promise.all([
+          client.runtimeInfo(controller.signal),
+          client.workspaces.list(controller.signal),
+        ])
         if (controller.signal.aborted) return
-        setWorkspaces(sortWorkspaces(list))
-        const defaultWorkspace = list.find(isDefaultWorkspace)
+        setRuntimeInfo(paths)
+        setWorkspaces(sortWorkspaces(list, paths.workspaceDirectory))
+        const defaultWorkspace = list.find((item) =>
+          isDefaultWorkspace(item, paths.workspaceDirectory),
+        )
         setActiveWorkspaceID(defaultWorkspace?.id ?? list[0]?.id)
       } catch (cause) {
         if (!controller.signal.aborted) setError(describeError(cause))
@@ -64,7 +71,9 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
     setSelecting(true)
     setError(undefined)
     try {
-      const picked = await selectDirectory(activeWorkspace?.directory ?? DEFAULT_WORKSPACE_DIRECTORY)
+      const picked = await selectDirectory(
+        activeWorkspace?.directory ?? runtimeInfo?.workspaceDirectory,
+      )
       if (picked === undefined) return
       const workspace = await client.workspaces.add({ directory: picked })
       setWorkspaces((previous) =>
@@ -72,6 +81,7 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
           previous.some((item) => item.id === workspace.id)
             ? previous.map((item) => (item.id === workspace.id ? workspace : item))
             : [...previous, workspace],
+          runtimeInfo?.workspaceDirectory,
         ),
       )
       setActiveWorkspaceID(workspace.id)
@@ -80,7 +90,7 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
     } finally {
       setSelecting(false)
     }
-  }, [activeWorkspace?.directory, client.workspaces])
+  }, [activeWorkspace?.directory, client.workspaces, runtimeInfo?.workspaceDirectory])
 
   const rename = useCallback(
     async (workspaceID: string, name: string): Promise<Workspace | undefined> => {
@@ -88,7 +98,10 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
       try {
         const updated = await client.workspaces.rename(workspaceID, { name })
         setWorkspaces((previous) =>
-          sortWorkspaces(previous.map((workspace) => (workspace.id === workspaceID ? updated : workspace))),
+          sortWorkspaces(
+            previous.map((workspace) => (workspace.id === workspaceID ? updated : workspace)),
+            runtimeInfo?.workspaceDirectory,
+          ),
         )
         return updated
       } catch (cause) {
@@ -96,7 +109,7 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
         return undefined
       }
     },
-    [client.workspaces],
+    [client.workspaces, runtimeInfo?.workspaceDirectory],
   )
 
   const pin = useCallback(
@@ -105,7 +118,10 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
       try {
         const updated = await client.workspaces.pin(workspaceID, { pinned })
         setWorkspaces((previous) =>
-          sortWorkspaces(previous.map((workspace) => (workspace.id === workspaceID ? updated : workspace))),
+          sortWorkspaces(
+            previous.map((workspace) => (workspace.id === workspaceID ? updated : workspace)),
+            runtimeInfo?.workspaceDirectory,
+          ),
         )
         return updated
       } catch (cause) {
@@ -113,7 +129,7 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
         return undefined
       }
     },
-    [client.workspaces],
+    [client.workspaces, runtimeInfo?.workspaceDirectory],
   )
 
   const deleteWorkspace = useCallback(
@@ -124,7 +140,11 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
         const remaining = workspaces.filter((workspace) => workspace.id !== workspaceID)
         setWorkspaces(remaining)
         if (activeWorkspaceID === workspaceID) {
-          setActiveWorkspaceID(remaining.find(isDefaultWorkspace)?.id ?? remaining[0]?.id)
+          setActiveWorkspaceID(
+            remaining.find((item) =>
+              isDefaultWorkspace(item, runtimeInfo?.workspaceDirectory),
+            )?.id ?? remaining[0]?.id,
+          )
         }
         return result
       } catch (cause) {
@@ -132,16 +152,16 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
         return undefined
       }
     },
-    [activeWorkspaceID, client.workspaces, workspaces],
+    [activeWorkspaceID, client.workspaces, runtimeInfo?.workspaceDirectory, workspaces],
   )
 
   const clearError = useCallback(() => setError(undefined), [])
 
   return {
     workspaces,
+    runtimeInfo,
     activeWorkspace,
     directory: activeWorkspace?.directory,
-    label: activeWorkspace === undefined ? undefined : toDisplayPath(activeWorkspace.directory),
     loading,
     selecting,
     error,
@@ -154,12 +174,20 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
   }
 }
 
-export const isDefaultWorkspace = (workspace: Workspace): boolean => toDisplayPath(workspace.directory) === "~/easycode"
+export const isDefaultWorkspace = (
+  workspace: Workspace,
+  defaultWorkspaceDirectory: string | undefined,
+): boolean =>
+  defaultWorkspaceDirectory !== undefined &&
+  workspace.directory === defaultWorkspaceDirectory
 
-const sortWorkspaces = (workspaces: Workspace[]): Workspace[] =>
+const sortWorkspaces = (
+  workspaces: Workspace[],
+  defaultWorkspaceDirectory: string | undefined,
+): Workspace[] =>
   [...workspaces].sort((left, right) => {
-    const leftDefault = isDefaultWorkspace(left)
-    const rightDefault = isDefaultWorkspace(right)
+    const leftDefault = isDefaultWorkspace(left, defaultWorkspaceDirectory)
+    const rightDefault = isDefaultWorkspace(right, defaultWorkspaceDirectory)
     if (leftDefault !== rightDefault) return leftDefault ? -1 : 1
 
     const leftPinned = left.pinnedAt !== undefined

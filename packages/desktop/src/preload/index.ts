@@ -15,7 +15,7 @@ import {
  * 预加载脚本。
  *
  * 它向渲染层暴露三样东西：
- * 1. 四个常量（Core 服务地址、访问令牌、运行平台、用户主目录），由主进程通过命令行参数一次性注入
+ * 1. 三个常量（Core 服务地址、访问令牌、运行平台），由主进程通过命令行参数一次性注入
  * 2. 目录和图片选择函数，走 IPC 调主进程的系统弹窗
  * 3. 一个函数（重启应用），用于让配置保存后的修改真正进入 Core 启动流程
  *
@@ -24,8 +24,7 @@ import {
  * 既拿不到绝对路径，也没有任何 Web 标准 API 能唤起系统弹窗。
  *
  * 注意这里不能 import 任何 Node 内置模块：预加载脚本运行在沙箱里，
- * 只允许加载 electron、events、timers、url。因此主目录也只能由主进程注入，
- * 而不是在这里调用 os.homedir()。
+ * 只允许加载 electron、events、timers、url。
  */
 
 const ARG_PREFIX = "--easycode-"
@@ -58,14 +57,6 @@ contextBridge.exposeInMainWorld(
      * 红绿灯按钮，内容必须让出那块位置；Windows 与 Linux 则不需要。
      */
     platform: process.platform,
-
-    /**
-     * 用户主目录。
-     *
-     * 界面用它把绝对路径显示成 `~/xxx`，并在用户还没选过目录时把默认值
-     * 展开成可供系统弹窗使用的绝对路径。
-     */
-    homeDirectory: readArgument("home"),
 
     /**
      * 打开系统原生的目录选择框。

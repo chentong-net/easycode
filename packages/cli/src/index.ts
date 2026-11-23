@@ -2,7 +2,6 @@
 import { randomBytes } from "node:crypto"
 
 import { createCore, EASYCODE_CONFIG_DIR, type Core } from "@easycode/core"
-import { DEFAULT_WORKSPACE_DIRECTORY } from "@easycode/protocol"
 import { listen } from "@easycode/server"
 
 import { parseArgs, readFlagBoolean, readFlagString, type ParsedArgs } from "./args.js"
@@ -112,7 +111,7 @@ const resolveSession = async (core: Core, args: ParsedArgs, io: { write(text: st
     return session.id
   }
 
-  const directory = readFlagString(args, "dir") ?? DEFAULT_WORKSPACE_DIRECTORY
+  const directory = readFlagString(args, "dir") ?? core.runtimeInfo().workspaceDirectory
   const modelConfig = await core.modelConfigs.first()
   const reasoningEffort = modelConfig.supportedReasoningEfforts[0]
   const session = await core.sessions.create({
@@ -237,7 +236,7 @@ const printHelp = (): void => {
       "  serve             启动本地 HTTP 服务，供界面连接",
       "",
       "选项：",
-      `  --dir <目录>      run 使用的工作目录，默认 ${DEFAULT_WORKSPACE_DIRECTORY}`,
+      "  --dir <目录>      run 使用的工作目录，默认使用 Core 的默认 workspace",
       "  --session <ID>    run 复用一个已有会话，而不是新建",
       "  --reasoning       run 时展示模型的推理过程",
       "  --port <端口>     serve 监听的端口，默认由系统分配空闲端口",

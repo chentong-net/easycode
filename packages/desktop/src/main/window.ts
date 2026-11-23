@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron"
+import { BrowserWindow, shell } from "electron"
 
 import { log } from "./log"
 import { APP_ENTRY_URL, APP_SCHEME } from "./protocol"
@@ -7,7 +7,7 @@ import { APP_ENTRY_URL, APP_SCHEME } from "./protocol"
  * 主窗口。
  *
  * 渲染进程与 Core 之间没有任何直连：所有能力都通过 HTTP 接口暴露，
- * 主进程只负责把「服务地址、访问令牌、用户主目录」这几样东西交给预加载脚本。
+ * 主进程只负责把「服务地址、访问令牌」交给预加载脚本。
  * 渲染进程只能通过预加载脚本调用目录/图片选择和配置后的应用重启（见 main/ipc.ts），
  * 除此之外它的权限被降到一个普通网页的水平：即使界面代码出了漏洞，
  * 能造成的破坏也限于接口本身。
@@ -52,7 +52,6 @@ export const createMainWindow = (options: MainWindowOptions): BrowserWindow => {
       additionalArguments: [
         `--easycode-server-url=${options.serverUrl}`,
         `--easycode-server-token=${options.serverToken}`,
-        `--easycode-home=${app.getPath("home")}`,
       ],
     },
   })

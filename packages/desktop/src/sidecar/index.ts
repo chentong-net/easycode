@@ -28,6 +28,7 @@ const readPort = (raw: string | undefined): number => {
 const main = async (): Promise<void> => {
   const logger = createLogger("sidecar")
   const core = createCore()
+  await core.initialize()
 
   const token = process.env.EASYCODE_SERVER_TOKEN
   const server = await listen({

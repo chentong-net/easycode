@@ -12,8 +12,6 @@ export interface EasyCodeBridge {
   serverToken: string
   /** 运行平台，取值同 Node 的 process.platform */
   platform: string
-  /** 用户主目录，用于把绝对路径显示成 ~/xxx */
-  homeDirectory: string
   /** 打开系统原生的目录选择框；用户取消时返回 undefined */
   selectDirectory(request?: { defaultPath?: string }): Promise<string | undefined>
   /** 打开系统原生的多图选择框；用户取消时返回空数组 */

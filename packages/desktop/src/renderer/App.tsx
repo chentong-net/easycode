@@ -40,6 +40,7 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
 
       <SettingsDialog
         client={client}
+        runtimeInfo={workspace.runtimeInfo}
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onModelConfigsChanged={store.refreshModelConfigs}
