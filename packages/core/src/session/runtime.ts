@@ -133,11 +133,10 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
   const createHandle = (state: ProjectedState): SessionHandle => {
     const id = state.session.id
+    let appendQueue = Promise.resolve()
 
-    return {
-      id,
-      state,
-      append: async (event: NewDurableEvent): Promise<DurableEvent> => {
+    const append = (event: NewDurableEvent): Promise<DurableEvent> => {
+      const operation = appendQueue.then(async () => {
         const stored = await deps.store.appendEvent(id, state.lastSeq + 1, event)
         applyEvent(state, stored)
         deps.hub.publish(stored)
@@ -154,7 +153,18 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
         }
 
         return stored
-      },
+      })
+      appendQueue = operation.then(
+        () => undefined,
+        () => undefined,
+      )
+      return operation
+    }
+
+    return {
+      id,
+      state,
+      append,
       readContext: () => deps.store.readContext(id),
       saveContext: (context) => deps.store.writeContext(id, context),
     }

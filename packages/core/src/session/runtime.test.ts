@@ -127,6 +127,53 @@ test("未指定时新会话使用内置 coding", async () => {
   assert.equal(session.promptProfileID, "coding")
 })
 
+test("同一会话的并发事件追加会串行分配序号", async () => {
+  const config = testConfig("concurrent-events")
+  const store = createSessionStore(config)
+  const promptProfiles = createPromptProfileService({
+    dataDir: config.dataDir,
+    logger,
+  })
+  const modelConfigs = createModelConfigService({
+    dataDir: config.dataDir,
+    seed: {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      contextWindow: config.contextWindow,
+      maxOutputTokens: config.maxOutputTokens,
+      headers: config.headers,
+    },
+    logger,
+  })
+  const sessions = createSessionManager({
+    config,
+    store,
+    hub: createEventHub(logger),
+    agents: createAgentRegistry(),
+    promptProfiles,
+    modelConfigs,
+    logger,
+  })
+  const session = await sessions.create({ directory })
+  const handle = await sessions.handle(session.id)
+
+  await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      handle.append({
+        type: "session.updated",
+        sessionID: session.id,
+        timestamp: Date.now() + index,
+        title: `并发标题 ${index}`,
+      }),
+    ),
+  )
+
+  const events = await store.readEvents(session.id)
+  assert.deepEqual(events.map((event) => event.seq), [1, 2, 3, 4, 5, 6, 7, 8, 9])
+  assert.equal(handle.state.session.title, "并发标题 7")
+})
+
 test("旧 session.json 的 compactionProfileID 会映射为 promptProfileID", async () => {
   const config = testConfig("legacy-profile")
   const store = createSessionStore(config)
