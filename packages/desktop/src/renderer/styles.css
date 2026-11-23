@@ -1925,6 +1925,18 @@ pre {
   border-top: none;
 }
 
+.settings-form > .settings-body {
+  padding-block: 16px;
+}
+
+.settings-form .settings-section:first-of-type {
+  padding-top: 0;
+}
+
+.settings-form .settings-section:last-of-type {
+  padding-bottom: 0;
+}
+
 .settings-section-heading {
   display: flex;
   align-items: baseline;
