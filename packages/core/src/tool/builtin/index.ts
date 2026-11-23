@@ -19,8 +19,9 @@ import { writeTool } from "./write.js"
  * 工具的顺序会影响它们在请求里的排列顺序，这里按「先读后写」的直觉排列：
  * read / glob / grep 在前，edit / write / bash 在后。
  */
-export const createBuiltinTools = (webConfig: CoreWebConfig): Tool<unknown>[] => {
-  const tools: Tool<unknown>[] = [readTool, globTool, grepTool, ...createWebTools(webConfig)]
+export const createBuiltinTools = (webConfig?: CoreWebConfig): Tool<unknown>[] => {
+  const tools: Tool<unknown>[] = [readTool, globTool, grepTool]
+  if (webConfig) tools.push(...createWebTools(webConfig))
   tools.push(editTool, writeTool, bashTool, questionTool, todoWriteTool)
   return tools
 }

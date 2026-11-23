@@ -103,7 +103,7 @@ export const createConfigurationService = (deps: ConfigurationDeps): Configurati
   const testModel = async (input: ModelConnectionTestInput): Promise<ModelConnectionTestResult> => {
     const model = input.model.trim()
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, "")
-    const apiKey = input.apiKey === undefined ? current.apiKey : (input.apiKey ?? "")
+    const apiKey = input.apiKey ?? ""
     const startedAt = Date.now()
 
     if (model.length === 0) {
@@ -114,7 +114,7 @@ export const createConfigurationService = (deps: ConfigurationDeps): Configurati
     try {
       headers =
         input.extraHeaders === undefined
-          ? current.headers
+          ? {}
           : input.extraHeaders === null
             ? {}
             : parseHeaders(input.extraHeaders)

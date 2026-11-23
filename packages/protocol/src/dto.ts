@@ -120,6 +120,7 @@ export const ModelConfigResponse = ModelConfigSummary.omit({
   hasApiKey: true,
   hasExtraHeaders: true,
 }).extend({
+  configFile: z.string(),
   baseUrl: z.string(),
   temperature: z.number().finite().optional(),
   hasApiKey: z.boolean(),
@@ -286,6 +287,8 @@ export const ImagePrepareRequest = z.object({
   path: z.string().trim().min(1, "图片路径不能为空"),
   /** Adapter 标识由服务端注册表校验，协议不维护封闭枚举。 */
   platform: z.string().trim().min(1).max(100).optional(),
+  /** 当前用户选择的模型配置；需要模型凭据的 Adapter 使用它。 */
+  modelConfigID: z.string().trim().min(1).optional(),
 })
 
 export type ImagePrepareRequest = z.infer<typeof ImagePrepareRequest>

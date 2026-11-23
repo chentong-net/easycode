@@ -5,6 +5,14 @@ export interface ImageInput {
   path: string
 }
 
+/** 当前请求所选模型配置中与图片上传有关的运行参数。 */
+export interface ImageRuntimeConfig {
+  baseUrl: string
+  apiKey: string
+  model: string
+  headers: Record<string, string>
+}
+
 /** 图片准备策略：返回可直接加入模型 content 数组的 JSON。 */
 export interface ImageService {
   readonly platform: string
@@ -35,6 +43,7 @@ export interface ImageServiceRegistry {
   prepare(
     platform: string | undefined,
     input: ImageInput,
+    runtime?: ImageRuntimeConfig,
     signal?: AbortSignal,
   ): Promise<ImagePrepareResult>
 }

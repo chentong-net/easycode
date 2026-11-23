@@ -60,6 +60,7 @@ export interface ModelConfigSeed {
 export interface ModelConfigRecord {
   config: ModelConfig
   runtime: StoredRuntimeConfig
+  configFile: string
 }
 
 export interface ModelConfigService {
@@ -131,7 +132,7 @@ export const createModelConfigService = (deps: ModelConfigServiceDeps): ModelCon
     }
     try {
       const config = configFromStored(id, stored)
-      return { config, runtime: stored }
+      return { config, runtime: stored, configFile: fileFor(id) }
     } catch (error) {
       deps.logger?.warn("忽略包含无效 reasoning level 的模型配置", { id, error })
       return undefined

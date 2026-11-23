@@ -760,12 +760,15 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           {
             path,
             ...(platform === undefined ? {} : { platform }),
+            ...(pendingModelConfigID.length === 0
+              ? {}
+              : { modelConfigID: pendingModelConfigID }),
           },
           signal,
         )
       ).content
     },
-    [client.images],
+    [client.images, pendingModelConfigID],
   )
 
   const send = useCallback(

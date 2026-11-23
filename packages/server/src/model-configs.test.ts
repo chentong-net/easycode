@@ -78,6 +78,7 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
   assert.equal(createdResponse.statusCode, 200)
   const created = createdResponse.json().data as {
     id: string
+    configFile: string
     revision: number
     hasApiKey: boolean
     hasExtraHeaders: boolean
@@ -90,6 +91,10 @@ test("模型配置可创建、热更新并隐藏密钥", async () => {
   assert.equal(created.hasWebSearchApiKey, false)
   assert.equal(created.hasWebFetchApiKey, false)
   assert.equal("apiKey" in created, false)
+  assert.equal(
+    created.configFile,
+    join(directory, "data", "config", `${created.id}.toml`),
+  )
 
   const updatedResponse = await application.app.inject({
     method: "PUT",

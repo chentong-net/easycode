@@ -54,7 +54,7 @@ packages/
 npm install
 ```
 
-首次启动会自动创建 `~/easycode/.easycode/config/<ID>.toml`。可以双击桌面端后通过「运行配置」填写，也可以直接编辑对应 TOML 文件；联网与日志设置保存后重启应用生效。
+首次启动会自动创建 `~/easycode/.easycode/config/<ID>.toml`。可以双击桌面端后通过「运行配置」填写，也可以直接编辑对应 TOML 文件；模型、联网和图片凭据均使用当前选中的配置。日志级别保存后重启应用生效。
 
 设置页的「模型配置」以 ID 为文件名展示多个 TOML。每项独立保存接口地址、模型 ID、API Key、上下文窗口、输出上限、温度、附加请求头、联网配置、日志和多个支持的 reasoning level。设置页底部只有一个「保存配置」按钮，一次保存当前选中的完整 TOML。
 
@@ -156,16 +156,17 @@ curl -H "x-easycode-token: <令牌>" http://127.0.0.1:8080/api/health
 
 ## 图片输入
 
-图片准备请求只要求本地路径，可选携带 `platform` 字符串：
+图片准备请求要求本地路径，可选携带 `platform` 和当前 `modelConfigID`：
 
 ```json
 {
   "path": "/home/user/screenshot.png",
-  "platform": "custom-adapter"
+  "platform": "deepseek-files",
+  "modelConfigID": "模型配置 ID"
 }
 ```
 
-Core 使用 `Map<string, ImageService>` 注册图片 Adapter，不再通过公共枚举限制实现方式。Adapter 自行声明 `platform`，新增实现时只需注册 Adapter，不需要修改协议。未提供 `platform` 或注册表中找不到对应项时回退 Base64；Adapter 已找到但执行失败时不会回退，而是直接返回业务错误。
+需要模型凭据的 Adapter 使用请求中指定的模型配置，不再读取启动时的首份 TOML。未提供 `platform` 或注册表中找不到对应项时回退 Base64；Adapter 已找到但执行失败时不会回退，而是直接返回业务错误。
 
 客户端通过 `GET /api/images/platforms` 获取当前已注册平台：
 
@@ -299,7 +300,7 @@ provider 报告上下文超限时，Runner 会执行一次 overflow compaction�
 
 `glob` 与 `grep` 默认跳过 `node_modules`、`.git`、`dist` 等目录，`grep` 另外跳过二进制文件与超过 2MB 的文件。超长工具输出写入 `~/easycode/.easycode/tool-output/`，消息中保留落盘路径。
 
-`websearch` 与 `webfetch` 的配置、HTTP、厂商映射和工具实现集中在 `packages/core/src/tool/builtin/web`，通过 `createBuiltinTools()` 按普通内置工具注册。DeepSeek 使用 Search/Fetch，GLM 使用 Web Search/Reader，Tavily 使用 Search/Extract；厂商地址固定。工具默认最多返回 20 条搜索结果、30 秒超时和 8 MB 厂商响应，最终进入模型的内容仍经过统一输出截断。
+`websearch` 与 `webfetch` 的配置、HTTP、厂商映射和工具实现集中在 `packages/core/src/tool/builtin/web`。Runner 在每个回合按会话当前选中的模型配置动态加入可用联网工具，修改配置后从后续回合立即生效。DeepSeek 使用 Search/Fetch，GLM 使用 Web Search/Reader，Tavily 使用 Search/Extract；厂商地址固定。工具默认最多返回 20 条搜索结果、30 秒超时和 8 MB 厂商响应，最终进入模型的内容仍经过统一输出截断。
 
 工具调用完成后会写入结构化元数据：副作用类型、失败原因、是否可重试和修改文件路径。`bash` 的非零退出码与超时会作为失败返回。文件编辑与整体写入使用同目录临时文件加原子替换。
 

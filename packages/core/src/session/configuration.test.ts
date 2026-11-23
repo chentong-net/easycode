@@ -6,6 +6,7 @@ import { zeroUsage } from "@easycode/schema"
 
 import type { PromptProfileService } from "../prompt/index.js"
 import type { ModelConfigService } from "../model-config/index.js"
+import type { StoredRuntimeConfig } from "../config.js"
 import { resolveSessionConfiguration } from "./configuration.js"
 
 const modelConfig = ModelConfig.parse({
@@ -34,9 +35,34 @@ const promptProfile = PromptProfile.parse({
   updatedAt: 0,
 })
 
+const modelRuntime: StoredRuntimeConfig = {
+  baseUrl: modelConfig.baseUrl,
+  apiKey: modelConfig.apiKey,
+  model: modelConfig.model,
+  contextWindow: modelConfig.contextWindow,
+  maxOutputTokens: modelConfig.maxOutputTokens,
+  headers: modelConfig.headers,
+  configName: modelConfig.name,
+  supportedReasoningEfforts: modelConfig.supportedReasoningEfforts,
+  revision: modelConfig.revision,
+  createdAt: modelConfig.createdAt,
+  updatedAt: modelConfig.updatedAt,
+  web: {
+    timeoutMs: 30_000,
+    maxResponseBytes: 1024,
+    search: { provider: "deepseek", apiKey: "search-key" },
+    fetch: { provider: "deepseek", apiKey: "fetch-key" },
+  },
+  logLevel: "info",
+}
+
 const services = {
   modelConfigs: {
     get: async (id: string) => (id === modelConfig.id ? modelConfig : undefined),
+    getRecord: async (id: string) =>
+      id === modelConfig.id
+        ? { config: modelConfig, runtime: modelRuntime, configFile: "/tmp/model.toml" }
+        : undefined,
   } as ModelConfigService,
   promptProfiles: {
     get: async (id: string) =>
@@ -47,6 +73,7 @@ const services = {
 test("会话完整配置返回模型、提示配置和思考强度", async () => {
   const result = await resolveSessionConfiguration(session({ reasoningEffort: "high" }), services)
   assert.equal(result.modelConfig.model, "test-model")
+  assert.equal(result.modelConfigRuntime.web.search.provider, "deepseek")
   assert.equal(result.promptProfile.id, "coding")
   assert.equal(result.reasoningEffort, "high")
 })

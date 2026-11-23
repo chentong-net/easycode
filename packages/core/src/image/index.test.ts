@@ -38,10 +38,6 @@ after(async () => {
 
 test("missing and unknown adapters fall back to Base64", async () => {
   const registry = createImageServiceRegistry({
-    baseUrl: "https://example.com",
-    apiKey: "test",
-    model: "test",
-    headers: {},
     logger,
   })
 
@@ -81,10 +77,6 @@ test("adapter execution failures are returned without fallback", async () => {
     },
   }
   const registry = createImageServiceRegistry({
-    baseUrl: "https://example.com",
-    apiKey: "test",
-    model: "test",
-    headers: {},
     logger,
     adapters: [failing],
   })
@@ -93,6 +85,48 @@ test("adapter execution failures are returned without fallback", async () => {
     registry.prepare("failing", { path: imagePath }),
     /adapter failed/,
   )
+})
+
+test("DeepSeek Files 使用请求携带的模型配置", async () => {
+  const originalFetch = globalThis.fetch
+  let requestedURL = ""
+  let requestedHeaders: Record<string, string> | undefined
+  let requestedBody: FormData | undefined
+  globalThis.fetch = (async (input, init) => {
+    requestedURL = String(input)
+    requestedHeaders = init?.headers as Record<string, string> | undefined
+    requestedBody = init?.body as FormData
+    return new Response(JSON.stringify({ id: "file_test" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })
+  }) as typeof fetch
+
+  try {
+    const registry = createImageServiceRegistry({ logger })
+    const result = await registry.prepare(
+      "deepseek-files",
+      { path: imagePath },
+      {
+        baseUrl: "https://api.deepseek.com/",
+        apiKey: "selected-key",
+        model: "deepseek-flash",
+        headers: { "x-test": "selected" },
+      },
+    )
+
+    assert.equal(result.adapter, "deepseek-files")
+    assert.deepEqual(result.content, { type: "file", file_id: "file_test" })
+    assert.equal(requestedURL, "https://api.deepseek.com/files")
+    assert.equal(requestedBody?.get("purpose"), "user_data")
+    assert.equal(
+      requestedHeaders?.authorization,
+      "Bearer selected-key",
+    )
+    assert.equal(requestedHeaders?.["x-test"], "selected")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test("duplicate adapter identifiers fail registration", () => {
@@ -107,10 +141,6 @@ test("duplicate adapter identifiers fail registration", () => {
   assert.throws(
     () =>
       createImageServiceRegistry({
-        baseUrl: "https://example.com",
-        apiKey: "test",
-        model: "test",
-        headers: {},
         logger,
         adapters: [duplicate],
       }),

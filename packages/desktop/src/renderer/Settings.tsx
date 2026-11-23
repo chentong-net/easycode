@@ -1,7 +1,6 @@
 import type { EasyCodeClient } from "@easycode/client"
 import {
   type ImagePlatformInfo,
-  RuntimeConfigResponse,
   type WebProvider,
 } from "@easycode/protocol"
 import { RotateCw, X } from "lucide-react"
@@ -27,25 +26,16 @@ import {
 } from "./ModelConfigs"
 
 interface ConfigForm {
-  baseUrl: string
-  model: string
-  contextWindow: string
-  maxOutputTokens: string
-  temperature: string
-  apiKey: string
-  extraHeaders: string
   webSearchProvider: WebProvider | ""
   webSearchApiKey: string
   webFetchProvider: WebProvider | ""
   webFetchApiKey: string
   webTimeoutMs: string
   webMaxResponseBytes: string
-  logLevel: RuntimeConfigResponse["logLevel"]
+  logLevel: ModelConfigRuntimeMetadata["logLevel"]
 }
 
 interface ClearState {
-  apiKey: boolean
-  extraHeaders: boolean
   webSearchApiKey: boolean
   webFetchApiKey: boolean
 }
@@ -56,13 +46,6 @@ interface SaveFeedback {
 }
 
 const EMPTY_FORM: ConfigForm = {
-  baseUrl: "",
-  model: "",
-  contextWindow: "128000",
-  maxOutputTokens: "8192",
-  temperature: "",
-  apiKey: "",
-  extraHeaders: "",
   webSearchProvider: "",
   webSearchApiKey: "",
   webFetchProvider: "",
@@ -73,8 +56,6 @@ const EMPTY_FORM: ConfigForm = {
 }
 
 const EMPTY_CLEAR: ClearState = {
-  apiKey: false,
-  extraHeaders: false,
   webSearchApiKey: false,
   webFetchApiKey: false,
 }
@@ -90,14 +71,13 @@ export const SettingsDialog = ({
   onClose: () => void
   onModelConfigsChanged: () => Promise<void>
 }) => {
-  const [config, setConfig] = useState<RuntimeConfigResponse | undefined>()
+  const [runtime, setRuntime] = useState<ModelConfigRuntimeMetadata | undefined>()
   const [form, setForm] = useState<ConfigForm>(EMPTY_FORM)
   const [clear, setClear] = useState<ClearState>(EMPTY_CLEAR)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [loadError, setLoadError] = useState<string | undefined>()
   const [imagePlatforms, setImagePlatforms] = useState<ImagePlatformInfo[]>([base64Platform])
   const [imagePlatform, setImagePlatform] = useState(base64Platform.platform)
   const [imagePlatformsError, setImagePlatformsError] = useState<string | undefined>()
@@ -105,6 +85,7 @@ export const SettingsDialog = ({
   const modelConfigRef = useRef<ModelConfigSettingsHandle>(null)
 
   const handleRuntimeLoaded = useCallback((next: ModelConfigRuntimeMetadata): void => {
+    setRuntime(next)
     setForm((current) => ({
       ...current,
       webSearchProvider: next.webSearchProvider ?? "",
@@ -115,22 +96,6 @@ export const SettingsDialog = ({
       webMaxResponseBytes: String(next.webMaxResponseBytes),
       logLevel: next.logLevel,
     }))
-    setConfig((current) =>
-      current === undefined
-        ? current
-        : {
-            ...current,
-            webSearchProvider:
-              next.webSearchProvider === "" ? undefined : next.webSearchProvider,
-            hasWebSearchApiKey: next.hasWebSearchApiKey,
-            webFetchProvider:
-              next.webFetchProvider === "" ? undefined : next.webFetchProvider,
-            hasWebFetchApiKey: next.hasWebFetchApiKey,
-            webTimeoutMs: next.webTimeoutMs,
-            webMaxResponseBytes: next.webMaxResponseBytes,
-            logLevel: next.logLevel,
-          },
-    )
     setClear((current) => ({
       ...current,
       webSearchApiKey: false,
@@ -143,28 +108,17 @@ export const SettingsDialog = ({
     const controller = new AbortController()
     setLoading(true)
     setSaved(false)
-    setLoadError(undefined)
+    setRuntime(undefined)
+    setForm(EMPTY_FORM)
     setImagePlatforms([base64Platform])
     setImagePlatform(readImagePlatform() ?? base64Platform.platform)
     setImagePlatformsError(undefined)
     setSaveFeedback(undefined)
     setClear(EMPTY_CLEAR)
     void (async () => {
-      const [configResult, platformsResult] = await Promise.allSettled([
-        client.config.get(controller.signal),
-        client.images.platforms(controller.signal),
-      ])
-      if (controller.signal.aborted) return
-
-      if (configResult.status === "fulfilled") {
-        setConfig(configResult.value)
-        setForm(toForm(configResult.value))
-      } else {
-        setLoadError(describeError(configResult.reason))
-      }
-
-      if (platformsResult.status === "fulfilled") {
-        const list = platformsResult.value
+      try {
+        const list = await client.images.platforms(controller.signal)
+        if (controller.signal.aborted) return
         const saved = readImagePlatform()
         const selected = saved !== undefined && list.platforms.some((item) => item.platform === saved)
           ? saved
@@ -172,14 +126,14 @@ export const SettingsDialog = ({
         setImagePlatforms(list.platforms)
         setImagePlatform(selected)
         saveImagePlatform(selected)
-      } else {
+      } catch (cause) {
+        if (controller.signal.aborted) return
         setImagePlatforms([base64Platform])
         setImagePlatform(base64Platform.platform)
         saveImagePlatform(base64Platform.platform)
-        setImagePlatformsError(describeError(platformsResult.reason))
+        setImagePlatformsError(describeError(cause))
       }
-
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     })()
     return () => controller.abort()
   }, [client, open])
@@ -206,17 +160,15 @@ export const SettingsDialog = ({
   const setField = <Key extends keyof ConfigForm>(key: Key, value: ConfigForm[Key]): void => {
     setSaved(false)
     setSaveFeedback(undefined)
-    setLoadError(undefined)
     setForm((current) => ({ ...current, [key]: value }))
   }
 
   const setSecret = (
-    field: "apiKey" | "extraHeaders" | "webSearchApiKey" | "webFetchApiKey",
+    field: "webSearchApiKey" | "webFetchApiKey",
     value: string,
   ): void => {
     setSaved(false)
     setSaveFeedback(undefined)
-    setLoadError(undefined)
     setClear((current) => ({ ...current, [field]: false }))
     setForm((current) => ({ ...current, [field]: value }))
   }
@@ -224,7 +176,6 @@ export const SettingsDialog = ({
   const toggleClear = (field: keyof ClearState): void => {
     setSaved(false)
     setSaveFeedback(undefined)
-    setLoadError(undefined)
     setClear((current) => ({ ...current, [field]: !current[field] }))
     setForm((current) => ({ ...current, [field]: "" }))
   }
@@ -328,17 +279,9 @@ export const SettingsDialog = ({
               <div className="settings-loading">正在读取配置…</div>
             ) : (
               <>
-                {config !== undefined && (
-                  <div className={`settings-status${config.modelConfigured ? " settings-status-ok" : ""}`}>
-                    <span className="settings-status-dot" aria-hidden />
-                    {config.modelConfigured ? "模型服务已配置，可以开始使用" : "模型服务尚未配置完成"}
-                  </div>
-                )}
-
-                {loadError !== undefined && <div className="settings-load-error">无法读取配置：{loadError}</div>}
                 {saved && (
                   <div className="settings-saved">
-                    <span>配置已保存。联网与日志设置需要重启应用；模型配置保存后立即生效。</span>
+                    <span>配置已保存。模型与联网设置会用于后续回合；日志级别需要重启应用。</span>
                     {hasHost && (
                       <button type="button" className="btn btn-small" onClick={() => void restart()} disabled={restarting}>
                         <RotateCw size={13} />
@@ -404,11 +347,11 @@ export const SettingsDialog = ({
                     </Field>
                     <SecretField
                       label="搜索 API Key"
-                      configured={config?.hasWebSearchApiKey === true}
+                      configured={runtime?.hasWebSearchApiKey === true}
                       clearing={clear.webSearchApiKey}
                       value={form.webSearchApiKey}
                       placeholder={
-                        config?.hasWebSearchApiKey === true ? "已保存，输入新密钥可替换" : "请输入搜索 API Key"
+                        runtime?.hasWebSearchApiKey === true ? "已保存，输入新密钥可替换" : "请输入搜索 API Key"
                       }
                       onChange={(value) => setSecret("webSearchApiKey", value)}
                       onToggleClear={() => toggleClear("webSearchApiKey")}
@@ -426,11 +369,11 @@ export const SettingsDialog = ({
                     </Field>
                     <SecretField
                       label="网页读取 API Key"
-                      configured={config?.hasWebFetchApiKey === true}
+                      configured={runtime?.hasWebFetchApiKey === true}
                       clearing={clear.webFetchApiKey}
                       value={form.webFetchApiKey}
                       placeholder={
-                        config?.hasWebFetchApiKey === true ? "已保存，输入新密钥可替换" : "请输入网页读取 API Key"
+                        runtime?.hasWebFetchApiKey === true ? "已保存，输入新密钥可替换" : "请输入网页读取 API Key"
                       }
                       onChange={(value) => setSecret("webFetchApiKey", value)}
                       onToggleClear={() => toggleClear("webFetchApiKey")}
@@ -469,7 +412,10 @@ export const SettingsDialog = ({
                       <select
                         value={form.logLevel}
                         onChange={(event) =>
-                          setField("logLevel", event.target.value as RuntimeConfigResponse["logLevel"])
+                          setField(
+                            "logLevel",
+                            event.target.value as ModelConfigRuntimeMetadata["logLevel"],
+                          )
                         }
                       >
                         <option value="debug">debug</option>
@@ -479,16 +425,9 @@ export const SettingsDialog = ({
                       </select>
                     </Field>
                   </div>
-                  {config !== undefined && (
-                    <>
-                      <p className="settings-path">
-                        配置文件路径：<code>{config.configFile}</code>
-                      </p>
-                      <p className="settings-path">
-                        数据目录：<code>~/easycode/.easycode</code>
-                      </p>
-                    </>
-                  )}
+                  <p className="settings-path">
+                    数据目录：<code>~/easycode/.easycode</code>
+                  </p>
                 </section>
               </>
             )}
@@ -536,7 +475,6 @@ const Field = ({
     {hint !== undefined && <span className="settings-hint">{hint}</span>}
   </label>
 )
-
 const SecretField = ({
   label,
   configured,
@@ -583,20 +521,3 @@ const SecretField = ({
     {hint !== undefined && <span className="settings-hint">{hint}</span>}
   </label>
 )
-
-const toForm = (config: RuntimeConfigResponse): ConfigForm => ({
-  baseUrl: config.baseUrl,
-  model: config.model,
-  contextWindow: String(config.contextWindow),
-  maxOutputTokens: String(config.maxOutputTokens),
-  temperature: config.temperature === undefined ? "" : String(config.temperature),
-  apiKey: "",
-  extraHeaders: "",
-  webSearchProvider: config.webSearchProvider ?? "",
-  webSearchApiKey: "",
-  webFetchProvider: config.webFetchProvider ?? "",
-  webFetchApiKey: "",
-  webTimeoutMs: String(config.webTimeoutMs),
-  webMaxResponseBytes: String(config.webMaxResponseBytes),
-  logLevel: config.logLevel,
-})

@@ -37,6 +37,13 @@ before(async () => {
     agents: {
       all: () => [{ id: "build", description: "test" }],
     },
+    modelConfigs: {
+      first: async () => ({
+        model: "test-model",
+        contextWindow: 128_000,
+        maxOutputTokens: 8_192,
+      }),
+    },
     promptProfiles: {
       list: async () => [codingProfile],
       require: async (id: string) => {
@@ -87,7 +94,7 @@ test("health uses the success envelope", async () => {
     message: "SUCCESS",
     data: {
       ok: true,
-      version: "0.17.0",
+      version: "0.18.0",
       model: "test-model",
       contextWindow: 128_000,
       maxOutputTokens: 8_192,

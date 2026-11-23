@@ -345,6 +345,12 @@ export const ModelConfigSettings = forwardRef<ModelConfigSettingsHandle, {
         )}
       </div>
 
+      {config !== undefined && (
+        <p className="settings-path">
+          配置文件路径：<code>{config.configFile}</code>
+        </p>
+      )}
+
       <div className="settings-grid model-config-form">
         <label className="settings-field">
           <span>配置名称</span>

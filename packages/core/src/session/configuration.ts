@@ -16,6 +16,7 @@ import {
   REASONING_EFFORT_UNSUPPORTED_MESSAGE,
   type ModelConfigService,
 } from "../model-config/index.js"
+import type { StoredRuntimeConfig } from "../config.js"
 
 export interface SessionConfigurationServices {
   modelConfigs: ModelConfigService
@@ -24,6 +25,7 @@ export interface SessionConfigurationServices {
 
 export interface ResolvedSessionConfiguration {
   modelConfig: ModelConfig
+  modelConfigRuntime: StoredRuntimeConfig
   promptProfile: PromptProfile
   reasoningEffort?: ReasoningEffort
 }
@@ -38,8 +40,9 @@ export const resolveSessionSelection = async (
   services: SessionConfigurationServices,
 ): Promise<ResolvedSessionConfiguration> => {
   if (!session.modelConfigID) throw new Error(MODEL_CONFIG_REQUIRED_MESSAGE)
-  const modelConfig = await services.modelConfigs.get(session.modelConfigID)
-  if (!modelConfig) throw new Error(MODEL_CONFIG_MISSING_MESSAGE)
+  const record = await services.modelConfigs.getRecord(session.modelConfigID)
+  if (!record) throw new Error(MODEL_CONFIG_MISSING_MESSAGE)
+  const modelConfig = record.config
 
   if (!session.promptProfileID) throw new Error(PROMPT_PROFILE_REQUIRED_MESSAGE)
   const promptProfile = await services.promptProfiles.get(session.promptProfileID)
@@ -49,7 +52,7 @@ export const resolveSessionSelection = async (
     if (session.reasoningEffort !== undefined) {
       throw new Error(REASONING_EFFORT_UNSUPPORTED_MESSAGE)
     }
-    return { modelConfig, promptProfile }
+    return { modelConfig, modelConfigRuntime: record.runtime, promptProfile }
   }
 
   if (
@@ -58,7 +61,12 @@ export const resolveSessionSelection = async (
   ) {
     throw new Error(REASONING_EFFORT_UNSUPPORTED_MESSAGE)
   }
-  return { modelConfig, promptProfile, reasoningEffort: session.reasoningEffort }
+  return {
+    modelConfig,
+    modelConfigRuntime: record.runtime,
+    promptProfile,
+    reasoningEffort: session.reasoningEffort,
+  }
 }
 
 /**

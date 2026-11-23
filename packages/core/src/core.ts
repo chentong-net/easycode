@@ -94,10 +94,6 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   })
   const configuration = createConfigurationService({ config })
   const images = createImageServiceRegistry({
-    baseUrl: config.baseUrl,
-    apiKey: config.apiKey,
-    model: config.model,
-    headers: config.headers,
     logger: logger.child("image"),
   })
   const store = createSessionStore(config)
@@ -106,7 +102,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   const questions = createQuestionService()
   const context = createSystemContextManager()
   const tools = createToolRegistry({
-    tools: createBuiltinTools(config.web),
+    tools: createBuiltinTools(),
     saveToolOutput: (content) => store.saveToolOutput(content),
     logger: logger.child("tool"),
   })
@@ -151,7 +147,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   logger.info("Core 已就绪", {
     model: config.model,
     dataDir: config.dataDir,
-    toolCount: tools.definitions().length,
+    baseToolCount: tools.definitions().length,
     agentCount: agents.all().length,
   })
 

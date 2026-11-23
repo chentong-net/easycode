@@ -38,10 +38,17 @@ export const imageRoutes: FastifyPluginAsyncZod<ImageRoutesOptions> = async (
     },
     async (request) => {
       try {
+        const record =
+          request.body.platform !== "deepseek-files" ||
+          request.body.modelConfigID === undefined
+            ? undefined
+            : await options.core.modelConfigs.requireRecord(request.body.modelConfigID)
         return success(
-          await options.core.images.prepare(request.body.platform, {
-            path: request.body.path,
-          }),
+          await options.core.images.prepare(
+            request.body.platform,
+            { path: request.body.path },
+            record?.runtime,
+          ),
         )
       } catch (error) {
         if (error instanceof ImageServiceError) {

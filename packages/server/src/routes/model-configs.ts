@@ -3,7 +3,7 @@ import { REASONING_EFFORTS } from "@easycode/schema"
 import {
   createLLMClient,
   toModelLLMClientConfig,
-  type StoredRuntimeConfig,
+  type ModelConfigRecord,
 } from "@easycode/core"
 import {
   ApiResponse,
@@ -196,8 +196,9 @@ const summary = (config: ModelConfig) => ({
   updatedAt: config.updatedAt,
 })
 
-const view = (record: { config: ModelConfig; runtime: StoredRuntimeConfig }) => ({
+const view = (record: ModelConfigRecord) => ({
   ...summary(record.config),
+  configFile: record.configFile,
   baseUrl: record.runtime.baseUrl,
   ...(record.runtime.temperature === undefined ? {} : { temperature: record.runtime.temperature }),
   ...(record.runtime.web.search.provider === undefined

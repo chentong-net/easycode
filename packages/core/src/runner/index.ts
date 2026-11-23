@@ -96,6 +96,7 @@ interface TurnRuntime {
   selection: ResolvedSessionConfiguration
   llm: LLMClient
   compaction: Compaction
+  tools: ToolRegistry
 }
 
 export const createRunner = (deps: RunnerDeps): RunDriver => {
@@ -119,7 +120,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         })
         compactions.set(handle, compaction)
       }
-      return { selection, llm, compaction }
+      const tools = deps.tools.withWebConfig(selection.modelConfigRuntime.web)
+      return { selection, llm, compaction, tools }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       await handle.append({
@@ -431,7 +433,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
     // 3. 组装请求：历史 + 工具定义 + 系统提示词（Agent 提示词在前，baseline 在后）
     const messages = buildLLMMessages(handle.state, { baselineSeq: systemContext.baselineSeq })
-    const tools = isFinal ? [] : deps.tools.definitions()
+    const tools = isFinal ? [] : runtime.tools.definitions()
     const system = buildMainSystemPrompt(
       promptProfile.systemPrompt,
       systemContext.baseline,
@@ -824,6 +826,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
               settleTool({
                 handle,
                 agent,
+                tools: params.runtime.tools,
                 messageID,
                 callID: event.callID,
                 name: event.name,
@@ -972,6 +975,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   interface SettleToolInput {
     handle: SessionHandle
     agent: Agent
+    tools: ToolRegistry
     messageID: string
     callID: string
     name: string
@@ -997,7 +1001,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     }
 
     try {
-      const settlement = await deps.tools.settle({
+      const settlement = await params.tools.settle({
         call: { callID: params.callID, name: params.name, input: params.input },
         ...(params.parseError === undefined ? {} : { parseError: params.parseError }),
         sessionID: session.id,

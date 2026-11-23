@@ -17,7 +17,7 @@ test("successful envelopes return validated data", () => {
       message: "SUCCESS",
       data: {
         ok: true,
-        version: "0.17.0",
+        version: "0.18.0",
         model: "test",
         contextWindow: 128_000,
         maxOutputTokens: 8_192,

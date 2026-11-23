@@ -10,6 +10,8 @@ import type {
 
 import { PermissionDeclinedError, QuestionCancelledError, ToolFailure } from "../errors.js"
 import { createLogger, type Logger } from "../log.js"
+import { createWebTools } from "./builtin/web/index.js"
+import type { CoreWebConfig } from "./builtin/web/types.js"
 import { boundContent } from "./output.js"
 import { toModelDefinition, type Tool, type ToolContext } from "./tool.js"
 
@@ -61,6 +63,8 @@ export interface ToolRegistry {
   /** 转换为发给模型的工具定义 */
   definitions(): ToolDefinition[]
   has(name: string): boolean
+  /** 在基础工具上加入当前模型配置启用的联网工具。 */
+  withWebConfig(webConfig: CoreWebConfig): ToolRegistry
   /** 执行一次工具调用并生成最终结果 */
   settle(input: SettleInput): Promise<ToolSettlement>
 }
@@ -74,131 +78,140 @@ export interface ToolRegistryDeps {
 
 export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
   const logger = deps.logger ?? createLogger("tool")
-  const tools = new Map(deps.tools.map((tool) => [tool.name, tool]))
+  const create = (availableTools: Tool<unknown>[]): ToolRegistry => {
+    const tools = new Map(availableTools.map((tool) => [tool.name, tool]))
 
-  const definitions = (): ToolDefinition[] => deps.tools.map((tool) => toModelDefinition(tool))
+    const definitions = (): ToolDefinition[] => availableTools.map((tool) => toModelDefinition(tool))
 
-  const settle = async (input: SettleInput): Promise<ToolSettlement> => {
-    const name = input.call.name
-    const tool = tools.get(name)
+    const settle = async (input: SettleInput): Promise<ToolSettlement> => {
+      const name = input.call.name
+      const tool = tools.get(name)
 
-    if (!tool) {
-      logger.warn("模型请求了不存在的工具", { name, sessionID: input.sessionID })
-      return {
-        name,
-        status: "error",
-        error: `不存在名为 ${name} 的工具`,
-        metadata: { failureKind: "not_found" },
-      }
-    }
-
-    if (input.parseError) {
-      logger.warn("工具入参不是合法 JSON", { name, parseError: input.parseError })
-      return {
-        name,
-        status: "error",
-        error: `工具入参解析失败：${input.parseError}`,
-        metadata: { failureKind: "invalid_input" },
-      }
-    }
-
-    const parsed = tool.input.safeParse(input.call.input)
-    if (!parsed.success) {
-      const detail = parsed.error.issues
-        .map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "(根)"}: ${issue.message}`)
-        .join("；")
-      logger.warn("工具入参校验失败", { name, detail, received: input.call.input })
-      return {
-        name,
-        status: "error",
-        error: `工具入参不合法：${detail}`,
-        metadata: { failureKind: "invalid_input" },
-      }
-    }
-
-    const context: ToolContext = {
-      sessionID: input.sessionID,
-      directory: input.directory,
-      callID: input.call.callID,
-      signal: input.signal,
-      authorize: async ({ action, resources, save }) => {
-        await input.authorize({
-          callID: input.call.callID,
-          action,
-          resources,
-          save: save ?? tool.savePatterns(parsed.data),
-        })
-      },
-      askQuestion: input.askQuestion,
-      session: input.session,
-      logger: logger.child(name),
-    }
-
-    try {
-      const result = await tool.execute(parsed.data, context)
-      const bounded = await boundContent(result.content, deps.saveToolOutput)
-      const status = result.status ?? "success"
-      const metadata: ToolMetadata = {
-        effect: result.metadata?.effect ?? tool.effect,
-        ...result.metadata,
+      if (!tool) {
+        logger.warn("模型请求了不存在的工具", { name, sessionID: input.sessionID })
+        return {
+          name,
+          status: "error",
+          error: `不存在名为 ${name} 的工具`,
+          metadata: { failureKind: "not_found" },
+        }
       }
 
-      logger.debug("工具执行结束", {
-        name,
+      if (input.parseError) {
+        logger.warn("工具入参不是合法 JSON", { name, parseError: input.parseError })
+        return {
+          name,
+          status: "error",
+          error: `工具入参解析失败：${input.parseError}`,
+          metadata: { failureKind: "invalid_input" },
+        }
+      }
+
+      const parsed = tool.input.safeParse(input.call.input)
+      if (!parsed.success) {
+        const detail = parsed.error.issues
+          .map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "(根)"}: ${issue.message}`)
+          .join("；")
+        logger.warn("工具入参校验失败", { name, detail, received: input.call.input })
+        return {
+          name,
+          status: "error",
+          error: `工具入参不合法：${detail}`,
+          metadata: { failureKind: "invalid_input" },
+        }
+      }
+
+      const context: ToolContext = {
+        sessionID: input.sessionID,
+        directory: input.directory,
         callID: input.call.callID,
-        contentCount: bounded.files.length,
-        truncated: bounded.paths.length > 0,
-      })
-
-      return {
-        name,
-        status,
-        output: result.output,
-        content: buildModelContent(bounded.text, bounded.files),
-        outputPaths: bounded.paths,
-        metadata,
-        ...(status === "error" ? { error: result.error ?? "工具执行失败" } : {}),
+        signal: input.signal,
+        authorize: async ({ action, resources, save }) => {
+          await input.authorize({
+            callID: input.call.callID,
+            action,
+            resources,
+            save: save ?? tool.savePatterns(parsed.data),
+          })
+        },
+        askQuestion: input.askQuestion,
+        session: input.session,
+        logger: logger.child(name),
       }
-    } catch (error) {
-      // 用户拒绝授权会让整个回合停止，必须原样向上抛，不能变成工具错误结果
-      if (error instanceof PermissionDeclinedError) throw error
-      if (error instanceof QuestionCancelledError) {
-        logger.info("用户问题已取消", { name, callID: input.call.callID })
+
+      try {
+        const result = await tool.execute(parsed.data, context)
+        const bounded = await boundContent(result.content, deps.saveToolOutput)
+        const status = result.status ?? "success"
+        const metadata: ToolMetadata = {
+          effect: result.metadata?.effect ?? tool.effect,
+          ...result.metadata,
+        }
+
+        logger.debug("工具执行结束", {
+          name,
+          callID: input.call.callID,
+          contentCount: bounded.files.length,
+          truncated: bounded.paths.length > 0,
+        })
+
+        return {
+          name,
+          status,
+          output: result.output,
+          content: buildModelContent(bounded.text, bounded.files),
+          outputPaths: bounded.paths,
+          metadata,
+          ...(status === "error" ? { error: result.error ?? "工具执行失败" } : {}),
+        }
+      } catch (error) {
+        // 用户拒绝授权会让整个回合停止，必须原样向上抛，不能变成工具错误结果
+        if (error instanceof PermissionDeclinedError) throw error
+        if (error instanceof QuestionCancelledError) {
+          logger.info("用户问题已取消", { name, callID: input.call.callID })
+          return {
+            name,
+            status: "error",
+            error: error.message,
+            metadata: { effect: tool.effect, failureKind: "aborted" },
+          }
+        }
+
+        if (error instanceof ToolFailure) {
+          logger.info("工具执行失败", { name, callID: input.call.callID, message: error.message })
+          return {
+            name,
+            status: "error",
+            error: error.message,
+            metadata: {
+              effect: tool.effect,
+              failureKind: error.failureKind,
+              retryable: error.retryable,
+            },
+          }
+        }
+
+        // 未预期的异常：记完整堆栈，但只把简短说明交给模型
+        const message = error instanceof Error ? error.message : String(error)
+        logger.error("工具执行抛出未预期的错误", { name, callID: input.call.callID, error })
         return {
           name,
           status: "error",
-          error: error.message,
-          metadata: { effect: tool.effect, failureKind: "aborted" },
+          error: `工具执行失败：${message}`,
+          metadata: { effect: tool.effect, failureKind: "internal" },
         }
       }
+    }
 
-      if (error instanceof ToolFailure) {
-        logger.info("工具执行失败", { name, callID: input.call.callID, message: error.message })
-        return {
-          name,
-          status: "error",
-          error: error.message,
-          metadata: {
-            effect: tool.effect,
-            failureKind: error.failureKind,
-            retryable: error.retryable,
-          },
-        }
-      }
-
-      // 未预期的异常：记完整堆栈，但只把简短说明交给模型
-      const message = error instanceof Error ? error.message : String(error)
-      logger.error("工具执行抛出未预期的错误", { name, callID: input.call.callID, error })
-      return {
-        name,
-        status: "error",
-        error: `工具执行失败：${message}`,
-        metadata: { effect: tool.effect, failureKind: "internal" },
-      }
+    return {
+      definitions,
+      has: (name) => tools.has(name),
+      withWebConfig: (webConfig) => create([...deps.tools, ...createWebTools(webConfig)]),
+      settle,
     }
   }
 
-  return { definitions, has: (name) => tools.has(name), settle }
+  return create(deps.tools)
 }
 
 /**

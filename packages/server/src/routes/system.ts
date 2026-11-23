@@ -25,12 +25,13 @@ export const systemRoutes: FastifyPluginAsyncZod<SystemRoutesOptions> = async (
       },
     },
     async () => {
-      const budget = calculateCompactionBudget(options.core.config)
+      const config = await options.core.modelConfigs.first()
+      const budget = calculateCompactionBudget(config)
       return success({
         ok: true,
         version: API_VERSION,
-        model: options.core.config.model,
-        contextWindow: options.core.config.contextWindow,
+        model: config.model,
+        contextWindow: config.contextWindow,
         maxOutputTokens: budget.outputTokens,
       } satisfies HealthResponse)
     },
