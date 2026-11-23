@@ -130,6 +130,9 @@ export const createModelConfigService = (deps: ModelConfigServiceDeps): ModelCon
       deps.logger?.warn("忽略结构无效的模型配置", { id, error })
       return undefined
     }
+    // 首次启动生成的空 TOML 是合法的配置容器，但还没有可用模型。
+    // 它应在列表中隐式跳过，而不是让每次 readiness 检查都记录一条警告。
+    if (stored.model.trim().length === 0) return undefined
     try {
       const config = configFromStored(id, stored)
       return { config, runtime: stored, configFile: fileFor(id) }
