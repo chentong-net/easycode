@@ -143,6 +143,9 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const listRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const keepNoSelection = useRef(true)
   const configurationWrites = useRef<Promise<void>>(Promise.resolve())
+  const lastConfigurationRequest = useRef<
+    Record<"model" | "prompt" | "reasoning", string | undefined>
+  >({ model: undefined, prompt: undefined, reasoning: undefined })
   const [contextWindow, setContextWindow] = useState<number | undefined>()
   const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>()
   const [promptProfiles, setPromptProfiles] = useState<PromptProfileSummary[]>([])
@@ -208,6 +211,15 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     (input: SessionConfigurationRequest): void => {
       if (activeSessionID === undefined) return
       const sessionID = activeSessionID
+      const kind =
+        input.modelConfigID !== undefined
+          ? "model"
+          : input.promptProfileID !== undefined
+            ? "prompt"
+            : "reasoning"
+      const requestKey = `${sessionID}:${JSON.stringify(input)}`
+      if (lastConfigurationRequest.current[kind] === requestKey) return
+      lastConfigurationRequest.current[kind] = requestKey
       const operation = configurationWrites.current.then(async () => {
         const updated = await client.sessions.configure(sessionID, input)
         setSessions((previous) =>
@@ -217,9 +229,15 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           previous?.id === sessionID ? updated : previous,
         )
       })
-      configurationWrites.current = operation.catch((cause: unknown) => {
-        setError(describeError(cause))
-      })
+      configurationWrites.current = operation
+        .catch((cause: unknown) => {
+          setError(describeError(cause))
+        })
+        .finally(() => {
+          if (lastConfigurationRequest.current[kind] === requestKey) {
+            lastConfigurationRequest.current[kind] = undefined
+          }
+        })
     },
     [activeSessionID, client.sessions],
   )
@@ -255,27 +273,23 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   }, [client, refreshPromptProfiles, refreshModelConfigs])
 
   useEffect(() => {
-    if (
-      promptProfiles.length > 0 &&
-      pendingPromptProfileID.length > 0 &&
-      !promptProfiles.some((profile) => profile.id === pendingPromptProfileID)
-    ) {
-      setPendingPromptProfileIDState("coding")
-    }
+    if (promptProfiles.length === 0) return
+    if (promptProfiles.some((profile) => profile.id === pendingPromptProfileID)) return
+    setPendingPromptProfileIDState("coding")
   }, [promptProfiles, pendingPromptProfileID])
 
   useEffect(() => {
-    const selected = modelConfigs.find((config) => config.id === pendingModelConfigID)
-    if (selected === undefined) {
-      if (
-        activeSessionID === undefined &&
-        modelConfigs.length > 0 &&
-        pendingModelConfigID.length === 0
-      ) {
-        setPendingModelConfigIDState(modelConfigs[0]?.id ?? "")
-      }
+    if (modelConfigs.length === 0) {
+      if (pendingModelConfigID !== "") setPendingModelConfigIDState("")
       return
     }
+    if (modelConfigs.some((config) => config.id === pendingModelConfigID)) return
+    setPendingModelConfigIDState(modelConfigs[0]?.id ?? "")
+  }, [modelConfigs, pendingModelConfigID])
+
+  useEffect(() => {
+    const selected = modelConfigs.find((config) => config.id === pendingModelConfigID)
+    if (selected === undefined) return
     if (
       pendingReasoningEffort !== "" &&
       !selected.supportedReasoningEfforts.includes(pendingReasoningEffort)
@@ -288,7 +302,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     ) {
       setPendingReasoningEffortState("")
     }
-  }, [activeSessionID, modelConfigs, pendingModelConfigID, pendingReasoningEffort])
+  }, [modelConfigs, pendingModelConfigID, pendingReasoningEffort])
 
   useEffect(() => {
     if (activeSessionID === undefined) return
@@ -298,6 +312,72 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setPendingPromptProfileIDState(session.promptProfileID ?? "coding")
     setPendingReasoningEffortState(session.reasoningEffort ?? "")
   }, [activeSessionID])
+
+  useEffect(() => {
+    if (
+      activeSessionID === undefined ||
+      running ||
+      currentSession?.id !== activeSessionID ||
+      modelConfigs.length === 0
+    ) {
+      return
+    }
+    const currentID = currentSession.modelConfigID
+    if (currentID !== undefined && modelConfigs.some((config) => config.id === currentID)) {
+      return
+    }
+    const fallbackID = modelConfigs[0]?.id
+    if (fallbackID === undefined) return
+    if (
+      modelConfigs.some((config) => config.id === pendingModelConfigID) &&
+      pendingModelConfigID !== fallbackID
+    ) {
+      return
+    }
+    persistSessionConfiguration({
+      modelConfigID: fallbackID,
+      reasoningEffort: null,
+    })
+  }, [
+    activeSessionID,
+    currentSession?.id,
+    currentSession?.modelConfigID,
+    modelConfigs,
+    pendingModelConfigID,
+    persistSessionConfiguration,
+    running,
+  ])
+
+  useEffect(() => {
+    if (
+      activeSessionID === undefined ||
+      running ||
+      currentSession?.id !== activeSessionID ||
+      promptProfiles.length === 0 ||
+      !promptProfiles.some((profile) => profile.id === "coding")
+    ) {
+      return
+    }
+    const currentID = currentSession.promptProfileID
+    if (currentID !== undefined && promptProfiles.some((profile) => profile.id === currentID)) {
+      return
+    }
+    if (
+      promptProfiles.some((profile) => profile.id === pendingPromptProfileID) &&
+      pendingPromptProfileID !== "coding"
+    ) {
+      return
+    }
+    persistSessionConfiguration({ promptProfileID: "coding" })
+  }, [
+    activeSessionID,
+    currentSession?.id,
+    currentSession?.promptProfileID,
+    pendingPromptProfileID,
+    persistSessionConfiguration,
+    promptProfiles,
+    running,
+  ])
 
   /* ---------------------------------------------------------------------- */
   /* 会话列表                                                                */
@@ -692,6 +772,10 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     async (text: string, imageContents: JsonObject[]): Promise<boolean> => {
       if (workspace === undefined) return false
       try {
+        if (modelConfigs.length === 0) {
+          setError("请先在设置中添加模型配置")
+          return false
+        }
         const selectedModel = modelConfigs.find((config) => config.id === pendingModelConfigID)
         if (!pendingModelConfigID || selectedModel === undefined) {
           setError("请选择模型配置")

@@ -302,21 +302,35 @@ export const Composer = ({
         <div className="composer-actions">
           <label
             className="composer-profile"
-            title={configurationLocked ? "会话正在运行，暂不能更换模型配置" : "选择模型配置"}
+            title={
+              configurationLocked
+                ? "会话正在运行，暂不能更换模型配置"
+                : modelConfigs.length === 0
+                  ? "请先在设置中添加模型配置"
+                  : "选择模型配置"
+            }
           >
             <select
               value={modelConfigID}
               onChange={(event) => onModelConfigChange(event.target.value)}
-              disabled={configurationLocked || submitting || inputDisabled}
+              disabled={
+                configurationLocked ||
+                submitting ||
+                inputDisabled ||
+                modelConfigs.length === 0
+              }
               aria-label="模型配置"
             >
-              <option value="">请选择模型配置</option>
+              {modelConfigs.length === 0 && (
+                <option value="">请选择模型配置</option>
+              )}
               {modelConfigs.map((config) => (
                 <option value={config.id} key={config.id}>
                   {config.name}
                 </option>
               ))}
-              {modelConfigID.length > 0 &&
+              {modelConfigs.length > 0 &&
+                modelConfigID.length > 0 &&
                 !modelConfigs.some((config) => config.id === modelConfigID) && (
                   <option value={modelConfigID}>模型配置已丢失</option>
                 )}
