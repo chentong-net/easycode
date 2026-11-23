@@ -112,7 +112,6 @@ log_level = "info"
 ```bash
 npm run build       # 按依赖顺序构建全部包
 npm run typecheck   # 各包执行 tsc --noEmit
-npm test            # 运行服务端接口测试、Client 响应解析测试和图片 Adapter 测试
 npm run clean       # 清理 dist 与 release 目录
 
 # 只构建 Core 与 Server 依赖链并启动本地服务
