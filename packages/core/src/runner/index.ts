@@ -10,7 +10,7 @@ import type {
 import { addUsage } from "@easycode/schema"
 
 import { resolveAgent, type AgentRegistry } from "../agent.js"
-import type { CompactionProfileService } from "../compaction-profile/index.js"
+import type { PromptProfileService } from "../prompt/index.js"
 import type { CoreConfig } from "../config.js"
 import { PermissionDeclinedError } from "../errors.js"
 import { newInputID, newMessageID } from "../id.js"
@@ -24,13 +24,19 @@ import {
 } from "../model-config/index.js"
 import type { PermissionService } from "../permission/service.js"
 import type { QuestionService } from "../question/service.js"
-import { createCompactionManager, type CompactionManager } from "../session/compaction.js"
+import {
+  calculateCompactionBudget,
+  Compaction,
+  type CompactInput,
+  type CompactionFailure,
+  type CompactionResult,
+} from "../session/compaction.js"
 import {
   resolveSessionConfiguration,
   type ResolvedSessionConfiguration,
 } from "../session/configuration.js"
 import type { SystemContextManager } from "../session/context.js"
-import { buildLLMMessages } from "../session/history.js"
+import { buildLLMMessages, estimateRequestTokens } from "../session/history.js"
 import { pendingInputList, type ProjectedState } from "../session/projector.js"
 import { DEFAULT_SESSION_TITLE, type RunDriver, type SessionHandle, type SessionManager } from "../session/runtime.js"
 import {
@@ -80,7 +86,7 @@ export interface RunnerDeps {
   permissions: PermissionService
   questions: QuestionService
   modelConfigs: ModelConfigService
-  compactionProfiles: CompactionProfileService
+  promptProfiles: PromptProfileService
   context: SystemContextManager
   hub: EventHub
   logger?: Logger
@@ -89,12 +95,13 @@ export interface RunnerDeps {
 interface TurnRuntime {
   selection: ResolvedSessionConfiguration
   llm: LLMClient
-  compaction: CompactionManager
+  compaction: Compaction
 }
 
 export const createRunner = (deps: RunnerDeps): RunDriver => {
   const logger = deps.logger ?? createLogger("runner")
   const controls = new Map<string, RunControl>()
+  const compactions = new WeakMap<SessionHandle, Compaction>()
 
   const resolveTurnRuntime = async (handle: SessionHandle): Promise<TurnRuntime> => {
     try {
@@ -103,18 +110,15 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         toModelLLMClientConfig(selection.modelConfig),
         logger.child("llm"),
       )
-      const compaction = createCompactionManager({
-        config: {
-          ...deps.config,
-          contextWindow: selection.modelConfig.contextWindow,
-          maxOutputTokens: selection.modelConfig.maxOutputTokens,
-          ...(selection.modelConfig.temperature === undefined
-            ? {}
-            : { temperature: selection.modelConfig.temperature }),
-        },
-        llm,
-        logger: logger.child("compaction"),
-      })
+      let compaction = compactions.get(handle)
+      if (!compaction) {
+        compaction = new Compaction({
+          handle,
+          dataDir: deps.config.dataDir,
+          logger: logger.child("compaction"),
+        })
+        compactions.set(handle, compaction)
+      }
       return { selection, llm, compaction }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -294,8 +298,6 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     promotion: Delivery | undefined
     /** 是否已经因为 compaction（压缩）重建过请求，避免同一步里反复执行 */
     compactedOnce?: boolean
-    /** 当前 turn 准备好发送后需要写入的 compaction 诊断 ID。 */
-    backupAfterID?: string
     /** 同一回合内重建或 overflow 时复用开始时捕获的模型与配置快照。 */
     runtime?: TurnRuntime
   }
@@ -303,6 +305,26 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   interface TurnResult {
     needsContinuation: boolean
     step: number
+  }
+
+  const compactWithRunnerRetry = async (
+    compaction: Compaction,
+    input: CompactInput,
+  ): Promise<CompactionResult> => {
+    const first = await compaction.compact(input)
+    if (
+      first.status === "completed" ||
+      !retryCompactionFailure(first.failure) ||
+      input.signal?.aborted === true
+    ) {
+      return first
+    }
+
+    logger.warn("compaction 摘要失败，由 Runner 进行唯一一次重试", {
+      model: input.runtime.modelConfig.model,
+      failure: first.failure.kind,
+    })
+    return compaction.compact(input)
   }
 
   /**
@@ -393,7 +415,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const session = handle.state.session
     const signal = params.controller.signal
     const runtime = params.runtime ?? (await resolveTurnRuntime(handle))
-    const compactionProfile = runtime.selection.compactionProfile
+    const promptProfile = runtime.selection.promptProfile
 
     // 1. 将待处理输入转为可见消息。有输入完成转换时重置步数预算。
     const promoted = await promoteInputs(handle, params.promotion)
@@ -407,45 +429,69 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     // 2. 系统上下文。首次进入会渲染并冻结 baseline（基线），之后只做变化比对。
     const systemContext = await deps.context.ensure(handle)
 
-    // 3. 组装请求：历史 + 工具定义 + 系统提示词（agent 提示词在前，baseline 在后）
+    // 3. 组装请求：历史 + 工具定义 + 系统提示词（Agent 提示词在前，baseline 在后）
     const messages = buildLLMMessages(handle.state, { baselineSeq: systemContext.baselineSeq })
     const tools = isFinal ? [] : deps.tools.definitions()
     const system = buildMainSystemPrompt(
-      compactionProfile.agentSystemPrompt,
+      promptProfile.systemPrompt,
       systemContext.baseline,
     )
     if (isHardLimit) system.push(MAX_STEPS_PROMPT)
     else if (params.forceFinal) system.push(CHECKPOINT_STOP_PROMPT)
     else if (step >= (handle.state.task?.budget.softSteps ?? checkpointSteps)) system.push(SOFT_STEPS_PROMPT)
 
-    // 4. compaction（压缩）检查。执行过后重建请求（baseline 会换成新 epoch 的版本）。
+    // 4. compaction（压缩）检查。未达到阈值时连 compact() 都不调用。
     if (params.compactedOnce !== true) {
-      const compacted = await runtime.compaction.compactIfNeeded({
-        handle,
-        profile: compactionProfile,
-        model: runtime.selection.modelConfig.model,
-        ...(runtime.selection.reasoningEffort === undefined
-          ? {}
-          : { reasoningEffort: runtime.selection.reasoningEffort }),
-        baselineSeq: systemContext.baselineSeq,
-        system,
-        tools,
-        messages,
-        ...(isFinal ? { toolChoice: "none" as const } : {}),
-        signal,
-      })
-      if (compacted.status === "completed") {
-        // compaction 完成后开启新 epoch（上下文周期）：重渲染 baseline，
-        // 旧 epoch 的中途系统消息就此退出模型历史
-        await deps.context.replace(handle)
-        return runTurn({
-          ...params,
-          step,
-          promotion: undefined,
-          compactedOnce: true,
-          runtime,
-          ...(compacted.backupID === undefined ? {} : { backupAfterID: compacted.backupID }),
+      const budget = calculateCompactionBudget(runtime.selection.modelConfig)
+      const estimated = estimateRequestTokens(system, messages, tools)
+      const afterCompaction = handle.state.messages.at(-1)?.role === "compaction"
+      const threshold = afterCompaction ? budget.hardInputTokens : budget.triggerTokens
+
+      if (estimated >= threshold) {
+        logger.info("上下文达到 compaction 阈值", {
+          sessionID: handle.id,
+          estimated,
+          threshold,
+          contextWindow: budget.contextWindow,
         })
+        const compacted = await compactWithRunnerRetry(runtime.compaction, {
+          runtime: {
+            llm: runtime.llm,
+            modelConfig: runtime.selection.modelConfig,
+            promptProfile,
+          },
+          reason: "automatic",
+          baselineSeq: systemContext.baselineSeq,
+          system,
+          tools,
+          messages,
+          ...(isFinal ? { toolChoice: "none" as const } : {}),
+          signal,
+        })
+        if (compacted.status === "completed") {
+          // compaction 完成后开启新 epoch（上下文周期）：重渲染 baseline，
+          // 旧 epoch 的中途系统消息就此退出模型历史
+          await deps.context.replace(handle)
+          return runTurn({
+            ...params,
+            step,
+            promotion: undefined,
+            compactedOnce: true,
+            runtime,
+          })
+        }
+
+        if (compacted.failure.kind !== "aborted") {
+          const reason = compactionFailureText(compacted.failure)
+          await params.handle.append({
+            type: "session.failed",
+            sessionID: handle.id,
+            timestamp: Date.now(),
+            message: reason,
+          })
+          await blockTask(handle, reason)
+        }
+        return { needsContinuation: false, step }
       }
     }
 
@@ -457,7 +503,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       system,
       messages,
       tools,
-      maxOutputTokens: runtime.compaction.budget().outputTokens,
+      maxOutputTokens: calculateCompactionBudget(runtime.selection.modelConfig).outputTokens,
       ...(isFinal ? { toolChoice: "none" as const } : {}),
       sessionID: session.id,
     }
@@ -468,10 +514,6 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         reason: isHardLimit ? "hard_limit" : "checkpoint_stop",
         totalSteps: params.totalSteps,
       })
-    }
-
-    if (params.backupAfterID) {
-      await runtime.compaction.recordAfter(params.backupAfterID, request)
     }
 
     // 取消信号由 streamTurn 创建：它需要为本轮单独派生一个控制器，
@@ -500,7 +542,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     isLastStep: boolean
     /** 外层回合的取消信号。它被中止代表用户点了「中断」 */
     parentSignal: AbortSignal
-    /** 本次请求开始时的模型、推理等级和压缩配置快照。 */
+    /** 本次请求开始时的模型、推理等级和提示配置快照。 */
     runtime: TurnRuntime
   }
 
@@ -551,16 +593,27 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           parentSignal: params.parentSignal,
           runtime: params.runtime,
         })
-        if (!result.overflow || attempt >= 2) return result
+        if (!result.overflow) return result
+        if (attempt >= 2) {
+          const reason = "上下文压缩后模型仍报告上下文超限，本轮已停止。"
+          await params.handle.append({
+            type: "session.failed",
+            sessionID: params.handle.id,
+            timestamp: Date.now(),
+            message: reason,
+          })
+          await blockTask(params.handle, reason)
+          return result
+        }
 
         attempt += 1
-        const compacted = await params.runtime.compaction.compactAfterOverflow({
-          handle: params.handle,
-          profile: params.runtime.selection.compactionProfile,
-          model: params.runtime.selection.modelConfig.model,
-          ...(params.runtime.selection.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: params.runtime.selection.reasoningEffort }),
+        const compacted = await compactWithRunnerRetry(params.runtime.compaction, {
+          runtime: {
+            llm: params.runtime.llm,
+            modelConfig: params.runtime.selection.modelConfig,
+            promptProfile: params.runtime.selection.promptProfile,
+          },
+          reason: "overflow",
           baselineSeq: (await deps.context.ensure(params.handle)).baselineSeq,
           system: request.system,
           tools: request.tools,
@@ -570,8 +623,20 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         })
 
         if (compacted.status !== "completed") {
-          logger.warn("上下文超限但 compaction 未能完成，本轮以失败结束", { sessionID: params.handle.id })
-          await blockTask(params.handle, `上下文 compaction 失败：${compacted.reason}`)
+          logger.warn("上下文超限但 compaction 未能完成，本轮以原始 overflow 结束", {
+            sessionID: params.handle.id,
+            failure: compacted.failure.kind,
+          })
+          if (compacted.failure.kind !== "aborted") {
+            const reason = compactionFailureText(compacted.failure)
+            await params.handle.append({
+              type: "session.failed",
+              sessionID: params.handle.id,
+              timestamp: Date.now(),
+              message: reason,
+            })
+            await blockTask(params.handle, reason)
+          }
           return result
         }
 
@@ -580,12 +645,11 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         request = {
           ...request,
           system: buildMainSystemPrompt(
-            params.runtime.selection.compactionProfile.agentSystemPrompt,
+            params.runtime.selection.promptProfile.systemPrompt,
             systemContext.baseline,
           ),
           messages: buildLLMMessages(params.handle.state, { baselineSeq: systemContext.baselineSeq }),
         }
-        await params.runtime.compaction.recordAfter(compacted.backupID, request)
         logger.info("compaction 完成，重试本次请求", { sessionID: params.handle.id })
       }
     } finally {
@@ -804,7 +868,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           sessionID: session.id,
           timestamp: Date.now(),
           messageID,
-          finish: "compacted",
+          finish: "overflow",
           ...(usage ? { usage } : {}),
         })
         logger.info("provider 报告上下文超限，准备执行 compaction 后重试", { sessionID: session.id })
@@ -1381,6 +1445,47 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   return { wake, interrupt, isRunning: (sessionID) => controls.get(sessionID)?.running === true, shutdown }
 }
 
+const retryCompactionFailure = (failure: CompactionFailure): boolean => {
+  switch (failure.kind) {
+    case "provider_error":
+      return failure.status === undefined || failure.status === 429 || failure.status >= 500
+    case "summary_empty":
+    case "summary_truncated":
+    case "summary_invalid":
+    case "summary_not_smaller":
+      return true
+    default:
+      return false
+  }
+}
+
+const compactionFailureText = (failure: CompactionFailure): string => {
+  switch (failure.kind) {
+    case "nothing_to_compact":
+      return "上下文压缩失败：当前历史不足以生成新的 checkpoint。"
+    case "summary_input_too_large":
+      return "上下文压缩失败：摘要输入超过当前模型允许的窗口。"
+    case "summary_empty":
+      return "上下文压缩失败：摘要模型返回了空内容。"
+    case "summary_truncated":
+      return "上下文压缩失败：摘要输出达到长度上限，尚未生成完整 checkpoint。"
+    case "summary_invalid":
+      return failure.missingHeadings === undefined || failure.missingHeadings.length === 0
+        ? "上下文压缩失败：摘要缺少必需的 Markdown 标题。"
+        : `上下文压缩失败：摘要缺少必需标题 ${failure.missingHeadings.join("、")}。`
+    case "summary_not_smaller":
+      return "上下文压缩失败：生成的 checkpoint 没有缩小请求上下文。"
+    case "provider_error":
+      return `上下文压缩失败：摘要模型请求失败（${failure.message}）。`
+    case "configuration_error":
+      return `上下文压缩失败：${failure.message}`
+    case "aborted":
+      return "上下文压缩已中断。"
+    case "busy":
+      return "上下文压缩失败：当前会话已有压缩任务在执行。"
+  }
+}
+
 /** 判断会话里是否存在指定投递方式的待处理输入。 */
 const hasPendingInput = (state: ProjectedState, delivery: Delivery): boolean =>
   [...state.pendingInputs.values()].some((input) => input.delivery === delivery)
@@ -1502,9 +1607,9 @@ const SOFT_STEPS_PROMPT = `任务已经接近步数软上限。请立即评估�
 
 /** 主对话请求的 system 前缀：场景 BUILD 提示词在前，冻结 baseline 在后。 */
 export const buildMainSystemPrompt = (
-  agentSystemPrompt: string,
+  systemPrompt: string,
   baseline: string,
-): string[] => [agentSystemPrompt, baseline].filter((part) => part.length > 0)
+): string[] => [systemPrompt, baseline].filter((part) => part.length > 0)
 
 const TITLE_SYSTEM_PROMPT = `你负责为 Coding Agent 对话生成短标题。
 

@@ -1,14 +1,14 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, before, test } from "node:test"
 
 import { createAgentRegistry } from "../agent.js"
 import {
-  COMPACTION_PROFILE_MISSING_MESSAGE,
-  createCompactionProfileService,
-} from "../compaction-profile/index.js"
+  PROMPT_PROFILE_MISSING_MESSAGE,
+  createPromptProfileService,
+} from "../prompt/index.js"
 import type { CoreConfig } from "../config.js"
 import { createEventHub } from "../events.js"
 import type { Logger } from "../log.js"
@@ -34,10 +34,10 @@ after(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 
-test("会话持久化压缩配置，配置删除后拒绝继续对话", async () => {
+test("会话持久化提示配置，配置删除后拒绝继续对话", async () => {
   const config = testConfig()
   const store = createSessionStore(config)
-  const compactionProfiles = createCompactionProfileService({
+  const promptProfiles = createPromptProfileService({
     dataDir: config.dataDir,
     logger,
   })
@@ -58,51 +58,46 @@ test("会话持久化压缩配置，配置删除后拒绝继续对话", async ()
     store,
     hub: createEventHub(logger),
     agents: createAgentRegistry(),
-    compactionProfiles,
+    promptProfiles,
     modelConfigs,
     logger,
   })
-  const custom = await compactionProfiles.create({
+  const custom = await promptProfiles.create({
     name: "聊天",
-    agentSystemPrompt: "你是一个聊天助手。",
-    systemPrompt: "整理聊天记忆。",
-    includeTaskState: false,
-    instructions: {
-      initial: "整理",
-      chunk: "分块整理",
-      merge: "合并",
-      correction: "重新整理",
-    },
-    sectionTitles: {
-      previousSummary: "已有聊天记忆",
-      taskState: "当前任务状态",
-      transcript: "待压缩聊天",
-      instruction: "整理要求",
-    },
-    format: {
-      type: "headings",
-      headings: ["重要事实", "未完成话题"],
-    },
+    systemPrompt: "你是一个聊天助手。",
+    compactionSystemPrompt: "整理聊天记忆。",
+    compactionHeadings: ["重要事实", "未完成话题"],
   })
 
   const session = await sessions.create({
     directory,
-    compactionProfileID: custom.id,
+    promptProfileID: custom.id,
   })
-  assert.equal(session.compactionProfileID, custom.id)
-  assert.equal((await sessions.get(session.id))?.compactionProfileID, custom.id)
+  assert.equal(session.promptProfileID, custom.id)
+  assert.equal((await sessions.get(session.id))?.promptProfileID, custom.id)
 
-  await compactionProfiles.delete(custom.id)
+  const replacement = await promptProfiles.create({
+    name: "另一种聊天",
+    systemPrompt: "你使用更简洁的方式聊天。",
+    compactionSystemPrompt: "整理简洁聊天记忆。",
+    compactionHeadings: ["事实", "下一步"],
+  })
+  const configured = await sessions.configure(session.id, {
+    promptProfileID: replacement.id,
+  })
+  assert.equal(configured.promptProfileID, replacement.id)
+
+  await promptProfiles.delete(replacement.id)
   await assert.rejects(
     sessions.prompt(session.id, { text: "继续聊" }),
     (error: unknown) =>
-      error instanceof Error && error.message === COMPACTION_PROFILE_MISSING_MESSAGE,
+      error instanceof Error && error.message === PROMPT_PROFILE_MISSING_MESSAGE,
   )
 })
 
 test("未指定时新会话使用内置 coding", async () => {
   const config = testConfig("default")
-  const compactionProfiles = createCompactionProfileService({
+  const promptProfiles = createPromptProfileService({
     dataDir: config.dataDir,
     logger,
   })
@@ -123,18 +118,77 @@ test("未指定时新会话使用内置 coding", async () => {
     store: createSessionStore(config),
     hub: createEventHub(logger),
     agents: createAgentRegistry(),
-    compactionProfiles,
+    promptProfiles,
     modelConfigs,
     logger,
   })
 
   const session = await sessions.create({ directory })
-  assert.equal(session.compactionProfileID, "coding")
+  assert.equal(session.promptProfileID, "coding")
+})
+
+test("旧 session.json 的 compactionProfileID 会映射为 promptProfileID", async () => {
+  const config = testConfig("legacy-profile")
+  const store = createSessionStore(config)
+  const promptProfiles = createPromptProfileService({
+    dataDir: config.dataDir,
+    logger,
+  })
+  const modelConfigs = createModelConfigService({
+    dataDir: config.dataDir,
+    seed: {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      contextWindow: config.contextWindow,
+      maxOutputTokens: config.maxOutputTokens,
+      headers: config.headers,
+    },
+    logger,
+  })
+  const sessions = createSessionManager({
+    config,
+    store,
+    hub: createEventHub(logger),
+    agents: createAgentRegistry(),
+    promptProfiles,
+    modelConfigs,
+    logger,
+  })
+  const sessionDirectory = store.sessionDirectory("legacy_session")
+  await mkdir(sessionDirectory, { recursive: true })
+  await writeFile(
+    join(sessionDirectory, "session.json"),
+    JSON.stringify({
+      id: "legacy_session",
+      title: "旧会话",
+      directory,
+      agent: "build",
+      modelConfigID: "legacy-model",
+      compactionProfileID: "legacy-profile",
+      model: "test-model",
+      createdAt: 1,
+      updatedAt: 2,
+      usage: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      },
+      todos: [],
+    }),
+  )
+
+  const loaded = await sessions.get("legacy_session")
+  assert.equal(loaded?.promptProfileID, "legacy-profile")
+  assert.equal(loaded === undefined ? true : "compactionProfileID" in loaded, false)
+  assert.equal((await sessions.list())[0]?.promptProfileID, "legacy-profile")
 })
 
 test("缺失思考强度可直接使用模型默认，并且可以重新选择更新", async () => {
   const config = testConfig("levels")
-  const compactionProfiles = createCompactionProfileService({
+  const promptProfiles = createPromptProfileService({
     dataDir: config.dataDir,
     logger,
   })
@@ -173,7 +227,7 @@ test("缺失思考强度可直接使用模型默认，并且可以重新选择�
     store: createSessionStore(config),
     hub: createEventHub(logger),
     agents: createAgentRegistry(),
-    compactionProfiles,
+    promptProfiles,
     modelConfigs,
     logger,
   })

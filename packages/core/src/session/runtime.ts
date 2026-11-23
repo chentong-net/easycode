@@ -14,9 +14,9 @@ import { zeroUsage } from "@easycode/schema"
 
 import type { AgentRegistry } from "../agent.js"
 import {
-  CODING_COMPACTION_PROFILE_ID,
-  type CompactionProfileService,
-} from "../compaction-profile/index.js"
+  CODING_PROMPT_PROFILE_ID,
+  type PromptProfileService,
+} from "../prompt/index.js"
 import type { CoreConfig } from "../config.js"
 import type { EventHub } from "../events.js"
 import { newInputID, newSessionID } from "../id.js"
@@ -67,7 +67,7 @@ export interface SessionManagerDeps {
   store: SessionStore
   hub: EventHub
   agents: AgentRegistry
-  compactionProfiles: CompactionProfileService
+  promptProfiles: PromptProfileService
   modelConfigs: ModelConfigService
   logger?: Logger
 }
@@ -80,7 +80,7 @@ export interface SessionManager {
     directory: string
     title?: string
     modelConfigID?: string
-    compactionProfileID?: string
+    promptProfileID?: string
     reasoningEffort?: ReasoningEffort
   }): Promise<Session>
   get(sessionID: string): Promise<Session | undefined>
@@ -99,12 +99,12 @@ export interface SessionManager {
   pin(sessionID: string, pinned: boolean): Promise<Session>
   /** 修改会话标题，不改变会话目录或历史消息。 */
   rename(sessionID: string, title: string): Promise<Session>
-  /** 更新会话的模型、压缩配置和 reasoning effort。 */
+  /** 更新会话的模型、提示配置和 reasoning effort。 */
   configure(
     sessionID: string,
     input: {
       modelConfigID?: string
-      compactionProfileID?: string
+      promptProfileID?: string
       reasoningEffort?: ReasoningEffort | null
     },
   ): Promise<Session>
@@ -275,7 +275,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     directory: string
     title?: string
     modelConfigID?: string
-    compactionProfileID?: string
+    promptProfileID?: string
     reasoningEffort?: ReasoningEffort
   }): Promise<Session> => {
     const directory = resolve(expandHome(input.directory))
@@ -283,11 +283,11 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
     const now = Date.now()
     const agent = deps.agents.default()
-    const compactionProfileID = input.compactionProfileID ?? CODING_COMPACTION_PROFILE_ID
+    const promptProfileID = input.promptProfileID ?? CODING_PROMPT_PROFILE_ID
     const modelConfig = input.modelConfigID
       ? await deps.modelConfigs.require(input.modelConfigID)
       : await deps.modelConfigs.first()
-    await deps.compactionProfiles.require(compactionProfileID)
+    await deps.promptProfiles.require(promptProfileID)
     if (
       input.reasoningEffort !== undefined &&
       !modelConfig.supportedReasoningEfforts.includes(input.reasoningEffort)
@@ -300,7 +300,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       directory,
       agent: agent.id,
       modelConfigID: modelConfig.id,
-      compactionProfileID,
+      promptProfileID,
       ...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
       model: modelConfig.model,
       createdAt: now,
@@ -319,7 +319,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       directory,
       agent: agent.id,
       modelConfigID: modelConfig.id,
-      compactionProfileID,
+      promptProfileID,
       model: session.model,
       reasoningEffort: session.reasoningEffort,
     })
@@ -361,7 +361,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     sessionID: string,
     input: {
       modelConfigID?: string
-      compactionProfileID?: string
+      promptProfileID?: string
       reasoningEffort?: ReasoningEffort | null
     },
   ): Promise<Session> => {
@@ -371,16 +371,16 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     const handle = await load(sessionID)
     const current = handle.state.session
     const modelConfigID = input.modelConfigID ?? current.modelConfigID
-    const compactionProfileID = current.compactionProfileID ?? input.compactionProfileID
+    const promptProfileID = input.promptProfileID ?? current.promptProfileID
     const validateModel =
       input.modelConfigID !== undefined || input.reasoningEffort !== undefined
     const modelConfig =
       validateModel && modelConfigID !== undefined
         ? await deps.modelConfigs.require(modelConfigID)
         : undefined
-    if (input.compactionProfileID !== undefined) {
-      if (compactionProfileID === undefined) throw new Error("请选择压缩配置。")
-      await deps.compactionProfiles.require(compactionProfileID)
+    if (input.promptProfileID !== undefined) {
+      if (promptProfileID === undefined) throw new Error("请选择提示配置。")
+      await deps.promptProfiles.require(promptProfileID)
     }
     let reasoningEffort: ReasoningEffort | undefined =
       input.reasoningEffort === null
@@ -410,13 +410,13 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     const candidate: Session = {
       ...current,
       ...(modelConfigID === undefined ? {} : { modelConfigID }),
-      ...(compactionProfileID === undefined ? {} : { compactionProfileID }),
+      ...(promptProfileID === undefined ? {} : { promptProfileID }),
       reasoningEffort,
       ...(modelConfig === undefined ? {} : { model: modelConfig.model }),
     }
     const changed =
       current.modelConfigID !== candidate.modelConfigID ||
-      current.compactionProfileID !== candidate.compactionProfileID ||
+      current.promptProfileID !== candidate.promptProfileID ||
       current.reasoningEffort !== candidate.reasoningEffort ||
       current.model !== candidate.model
     if (!changed) return current
@@ -429,15 +429,15 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       ...(candidate.modelConfigID === undefined
         ? {}
         : { modelConfigID: candidate.modelConfigID }),
-      ...(candidate.compactionProfileID === undefined
+      ...(candidate.promptProfileID === undefined
         ? {}
-        : { compactionProfileID: candidate.compactionProfileID }),
+        : { promptProfileID: candidate.promptProfileID }),
       reasoningEffort: candidate.reasoningEffort ?? null,
     })
     logger.info("已更新会话运行配置", {
       sessionID,
       modelConfigID: candidate.modelConfigID,
-      compactionProfileID: candidate.compactionProfileID,
+      promptProfileID: candidate.promptProfileID,
       reasoningEffort: candidate.reasoningEffort,
     })
     return handle.state.session
@@ -469,9 +469,12 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
   }
 
   return {
-    list: () => deps.store.list(),
+    list: async () => (await deps.store.list()).map(normalizeLegacySession),
     create,
-    get: (sessionID) => deps.store.readSession(sessionID),
+    get: async (sessionID) => {
+      const session = await deps.store.readSession(sessionID)
+      return session === undefined ? undefined : normalizeLegacySession(session)
+    },
     messages: async (sessionID) => [...(await load(sessionID)).state.messages],
     task: async (sessionID) => (await load(sessionID)).state.task,
     prompt,
@@ -517,3 +520,14 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
 /** 新会话的默认标题。首次输入转为可见消息时会被替换成截断后的输入内容。 */
 export const DEFAULT_SESSION_TITLE = "新会话"
+
+const normalizeLegacySession = (session: Session): Session => {
+  const { compactionProfileID, ...current } = session
+  return {
+    ...current,
+    ...(current.promptProfileID === undefined &&
+    compactionProfileID !== undefined
+      ? { promptProfileID: compactionProfileID }
+      : {}),
+  }
+}

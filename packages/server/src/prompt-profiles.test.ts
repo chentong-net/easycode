@@ -26,7 +26,7 @@ let core: ReturnType<typeof createCore>
 let application: Awaited<ReturnType<typeof createApplication>>
 
 before(async () => {
-  directory = await mkdtemp(join(tmpdir(), "easycode-profile-api-test-"))
+  directory = await mkdtemp(join(tmpdir(), "easycode-prompt-profile-api-test-"))
   core = createCore({ config: testConfig(), logger })
   application = await createApplication({ core, token, logger })
 })
@@ -37,27 +37,54 @@ after(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 
-test("压缩配置经过真实 HTTP 接口创建、热更新并绑定到会话", async () => {
+test("提示配置经过真实 HTTP 接口创建、更新并绑定到会话", async () => {
   const createdResponse = await application.app.inject({
     method: "POST",
-    url: "/api/compaction-profiles",
+    url: "/api/prompt-profiles",
     headers: auth,
     payload: profileDraft("聊天"),
   })
-  assert.equal(createdResponse.statusCode, 200)
-  const created = createdResponse.json().data as { id: string; revision: number }
-  assert.equal(created.revision, 1)
+  assert.equal(createdResponse.statusCode, 200, createdResponse.body)
+  const created = createdResponse.json().data as {
+    id: string
+    createdAt: number
+    updatedAt: number
+  }
+  assert.ok(created.id.length > 0)
+  assert.equal(created.createdAt, created.updatedAt)
+  assert.equal("revision" in created, false)
+  assert.equal("builtIn" in created, false)
 
   const updatedResponse = await application.app.inject({
     method: "PUT",
-    url: `/api/compaction-profiles/${created.id}`,
+    url: `/api/prompt-profiles/${created.id}`,
     headers: auth,
     payload: profileDraft("长期聊天"),
   })
-  assert.equal(updatedResponse.statusCode, 200)
-  const updated = updatedResponse.json().data as { name: string; revision: number }
+  assert.equal(updatedResponse.statusCode, 200, updatedResponse.body)
+  const updated = updatedResponse.json().data as {
+    name: string
+    systemPrompt: string
+    compactionSystemPrompt: string
+    compactionHeadings: string[]
+  }
   assert.equal(updated.name, "长期聊天")
-  assert.equal(updated.revision, 2)
+  assert.equal(updated.systemPrompt, "你是一个聊天助手。")
+  assert.equal(updated.compactionSystemPrompt, "整理聊天记忆。")
+  assert.deepEqual(updated.compactionHeadings, ["重要事实", "未完成话题"])
+
+  const listResponse = await application.app.inject({
+    method: "GET",
+    url: "/api/prompt-profiles",
+    headers: auth,
+  })
+  assert.equal(listResponse.statusCode, 200)
+  const list = listResponse.json().data as Array<Record<string, unknown>>
+  const summary = list.find((profile) => profile.id === created.id)
+  assert.ok(summary)
+  assert.equal("systemPrompt" in summary, false)
+  assert.equal("compactionSystemPrompt" in summary, false)
+  assert.equal("compactionHeadings" in summary, false)
 
   const sessionResponse = await application.app.inject({
     method: "POST",
@@ -65,19 +92,19 @@ test("压缩配置经过真实 HTTP 接口创建、热更新并绑定到会话",
     headers: auth,
     payload: {
       directory,
-      compactionProfileID: created.id,
+      promptProfileID: created.id,
     },
   })
   assert.equal(sessionResponse.statusCode, 200, sessionResponse.body)
   const session = sessionResponse.json().data as {
     id: string
-    compactionProfileID: string
+    promptProfileID: string
   }
-  assert.equal(session.compactionProfileID, created.id)
+  assert.equal(session.promptProfileID, created.id)
 
   const deleted = await application.app.inject({
     method: "DELETE",
-    url: `/api/compaction-profiles/${created.id}`,
+    url: `/api/prompt-profiles/${created.id}`,
     headers: { "x-easycode-token": token },
   })
   assert.equal(deleted.statusCode, 200)
@@ -91,18 +118,18 @@ test("压缩配置经过真实 HTTP 接口创建、热更新并绑定到会话",
   assert.equal(promptResponse.statusCode, 200)
   assert.deepEqual(promptResponse.json(), {
     code: -1,
-    message: "当前会话使用的压缩配置已不存在，无法继续对话。",
+    message: "当前会话使用的提示配置已不存在，无法继续对话。",
   })
 })
 
-test("无效压缩配置返回明确业务错误", async () => {
+test("重复摘要标题返回明确业务错误", async () => {
   const response = await application.app.inject({
     method: "POST",
-    url: "/api/compaction-profiles",
+    url: "/api/prompt-profiles",
     headers: auth,
     payload: {
       ...profileDraft("重复标题"),
-      format: { type: "headings", headings: ["目标", "目标"] },
+      compactionHeadings: ["目标", "目标"],
     },
   })
 
@@ -113,26 +140,10 @@ test("无效压缩配置返回明确业务错误", async () => {
 
 const profileDraft = (name: string) => ({
   name,
-  description: "测试用压缩配置",
-  agentSystemPrompt: "你是一个聊天助手。",
-  systemPrompt: "整理聊天记忆。",
-  includeTaskState: false,
-  instructions: {
-    initial: "整理当前聊天。",
-    chunk: "整理当前分块。",
-    merge: "合并聊天记忆。",
-    correction: "请按标题重新输出。",
-  },
-  sectionTitles: {
-    previousSummary: "已有聊天记忆",
-    taskState: "当前任务状态",
-    transcript: "待压缩聊天",
-    instruction: "压缩要求",
-  },
-  format: {
-    type: "headings",
-    headings: ["重要事实", "未完成话题"],
-  },
+  description: "测试用提示配置",
+  systemPrompt: "你是一个聊天助手。",
+  compactionSystemPrompt: "整理聊天记忆。",
+  compactionHeadings: ["重要事实", "未完成话题"],
 })
 
 const testConfig = (): CoreConfig => ({

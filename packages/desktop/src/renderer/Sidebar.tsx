@@ -27,12 +27,12 @@ type ContextMenu =
 export const Sidebar = ({
   store,
   workspace,
-  onOpenCompactionProfiles,
+  onOpenPromptProfiles,
   onOpenSettings,
 }: {
   store: EasyCodeStore
   workspace: WorkspaceState
-  onOpenCompactionProfiles: () => void
+  onOpenPromptProfiles: () => void
   onOpenSettings: () => void
 }) => {
   const hasWorkspace = workspace.activeWorkspace !== undefined
@@ -268,9 +268,9 @@ export const Sidebar = ({
         <button
           type="button"
           className="settings-button"
-          onClick={onOpenCompactionProfiles}
-          aria-label="打开压缩配置管理"
-          title="压缩配置管理"
+          onClick={onOpenPromptProfiles}
+          aria-label="打开提示配置管理"
+          title="提示配置管理"
         >
           <Bot size={16} strokeWidth={1.8} />
         </button>

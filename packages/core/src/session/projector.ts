@@ -88,7 +88,7 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
 
   switch (event.type) {
     case "session.created":
-      state.session = event.session
+      state.session = normalizeSessionProfile(event.session)
       break
 
     case "session.updated": {
@@ -96,9 +96,12 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       if (event.title !== undefined) next.title = event.title
       if (event.model !== undefined) next.model = event.model
       if (event.modelConfigID !== undefined) next.modelConfigID = event.modelConfigID
-      if (event.compactionProfileID !== undefined) {
-        next.compactionProfileID = event.compactionProfileID
+      if (event.promptProfileID !== undefined) {
+        next.promptProfileID = event.promptProfileID
+      } else if (event.compactionProfileID !== undefined) {
+        next.promptProfileID = event.compactionProfileID
       }
+      delete next.compactionProfileID
       if (event.reasoningEffort !== undefined) {
         if (event.reasoningEffort === null) delete next.reasoningEffort
         else next.reasoningEffort = event.reasoningEffort
@@ -286,6 +289,16 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
     case "run.interrupted":
       // 中断本身不改变历史，只作为事件告诉 UI「这一轮停了」
       break
+  }
+}
+
+const normalizeSessionProfile = (session: Session): Session => {
+  const { compactionProfileID, ...current } = session
+  return {
+    ...current,
+    ...(current.promptProfileID === undefined && compactionProfileID !== undefined
+      ? { promptProfileID: compactionProfileID }
+      : {}),
   }
 }
 

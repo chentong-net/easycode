@@ -1,15 +1,15 @@
 import type {
-  CompactionProfile,
+  PromptProfile,
   ModelConfig,
   ReasoningEffort,
   Session,
 } from "@easycode/schema"
 
 import {
-  COMPACTION_PROFILE_MISSING_MESSAGE,
-  COMPACTION_PROFILE_REQUIRED_MESSAGE,
-  type CompactionProfileService,
-} from "../compaction-profile/index.js"
+  PROMPT_PROFILE_MISSING_MESSAGE,
+  PROMPT_PROFILE_REQUIRED_MESSAGE,
+  type PromptProfileService,
+} from "../prompt/index.js"
 import {
   MODEL_CONFIG_MISSING_MESSAGE,
   MODEL_CONFIG_REQUIRED_MESSAGE,
@@ -19,12 +19,12 @@ import {
 
 export interface SessionConfigurationServices {
   modelConfigs: ModelConfigService
-  compactionProfiles: CompactionProfileService
+  promptProfiles: PromptProfileService
 }
 
 export interface ResolvedSessionConfiguration {
   modelConfig: ModelConfig
-  compactionProfile: CompactionProfile
+  promptProfile: PromptProfile
   reasoningEffort?: ReasoningEffort
 }
 
@@ -41,15 +41,15 @@ export const resolveSessionSelection = async (
   const modelConfig = await services.modelConfigs.get(session.modelConfigID)
   if (!modelConfig) throw new Error(MODEL_CONFIG_MISSING_MESSAGE)
 
-  if (!session.compactionProfileID) throw new Error(COMPACTION_PROFILE_REQUIRED_MESSAGE)
-  const compactionProfile = await services.compactionProfiles.get(session.compactionProfileID)
-  if (!compactionProfile) throw new Error(COMPACTION_PROFILE_MISSING_MESSAGE)
+  if (!session.promptProfileID) throw new Error(PROMPT_PROFILE_REQUIRED_MESSAGE)
+  const promptProfile = await services.promptProfiles.get(session.promptProfileID)
+  if (!promptProfile) throw new Error(PROMPT_PROFILE_MISSING_MESSAGE)
 
   if (modelConfig.supportedReasoningEfforts.length === 0) {
     if (session.reasoningEffort !== undefined) {
       throw new Error(REASONING_EFFORT_UNSUPPORTED_MESSAGE)
     }
-    return { modelConfig, compactionProfile }
+    return { modelConfig, promptProfile }
   }
 
   if (
@@ -58,7 +58,7 @@ export const resolveSessionSelection = async (
   ) {
     throw new Error(REASONING_EFFORT_UNSUPPORTED_MESSAGE)
   }
-  return { modelConfig, compactionProfile, reasoningEffort: session.reasoningEffort }
+  return { modelConfig, promptProfile, reasoningEffort: session.reasoningEffort }
 }
 
 /**

@@ -1,73 +1,76 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { CompactionProfile } from "@easycode/schema"
+import { PromptProfile } from "@easycode/schema"
 
 import {
-  buildCompactionUserPrompt,
-  hasRequiredCompactionHeadings,
+  COMPACTION_SECTION_TITLES,
+  CompactionPromptBuilder,
   renderCompactionSystemPrompt,
 } from "./compaction-prompt.js"
 
-const profile = CompactionProfile.parse({
-  schemaVersion: 1,
+const profile = PromptProfile.parse({
   id: "novel",
-  revision: 1,
-  builtIn: false,
   name: "小说创作",
-  agentSystemPrompt: "你是小说创作助手。",
-  systemPrompt: "整理小说创作记忆。",
-  includeTaskState: false,
-  instructions: {
-    initial: "整理新内容。",
-    chunk: "整理当前分块。",
-    merge: "合并已有内容。",
-    correction: "请重新输出。",
-  },
-  sectionTitles: {
-    previousSummary: "已有创作记忆",
-    taskState: "当前任务状态",
-    transcript: "待压缩创作历史",
-    instruction: "压缩要求",
-  },
-  format: {
-    type: "headings",
-    headings: ["人物状态", "当前情节"],
-  },
+  systemPrompt: "你是小说创作助手。",
+  compactionSystemPrompt: "整理小说创作记忆。",
+  compactionHeadings: ["人物状态", "当前情节"],
   createdAt: 0,
   updatedAt: 0,
 })
 
-test("system prompt 自动包含配置中的全部二级标题", () => {
+test("system prompt 包含场景规则和全部输出标题", () => {
   const system = renderCompactionSystemPrompt(profile)
   assert.match(system, /整理小说创作记忆/)
   assert.match(system, /## 人物状态/)
   assert.match(system, /## 当前情节/)
+  assert.match(system, /输出一份新的、完整的 checkpoint/)
 })
 
-test("user prompt 按固定顺序组装已有摘要、任务、对话和要求", () => {
-  const prompt = buildCompactionUserPrompt(profile, {
-    previousSummary: "旧记忆",
-    taskMemory: "任务状态",
-    transcript: "新对话",
-    instruction: "合并内容",
+test("builder 按添加顺序组装 section 并省略空内容", () => {
+  const prompt = new CompactionPromptBuilder()
+    .addSection(COMPACTION_SECTION_TITLES.previousSummary, () => "旧记忆")
+    .addSection("额外上下文", () => "")
+    .addSection(COMPACTION_SECTION_TITLES.transcript, () => "新对话")
+    .build()
+
+  assert.equal(
+    prompt,
+    [
+      `# ${COMPACTION_SECTION_TITLES.previousSummary}`,
+      "旧记忆",
+      "",
+      `# ${COMPACTION_SECTION_TITLES.transcript}`,
+      "新对话",
+    ].join("\n"),
+  )
+  assert.equal(prompt.includes("# 额外上下文"), false)
+})
+
+test("section 回调在一个 builder 中只执行一次", () => {
+  let calls = 0
+  const builder = new CompactionPromptBuilder().addSection("额外上下文", () => {
+    calls += 1
+    return "内容"
   })
 
-  assert.ok(prompt.indexOf("# 已有创作记忆") < prompt.indexOf("# 当前任务状态"))
-  assert.ok(prompt.indexOf("# 当前任务状态") < prompt.indexOf("# 待压缩创作历史"))
-  assert.ok(prompt.indexOf("# 待压缩创作历史") < prompt.indexOf("# 压缩要求"))
+  assert.equal(builder.build(), "# 额外上下文\n内容")
+  assert.equal(builder.build(), "# 额外上下文\n内容")
+  assert.equal(calls, 1)
 })
 
-test("缺省的任务状态不会生成空 section", () => {
-  const prompt = buildCompactionUserPrompt(profile, {
-    transcript: "对话",
-    instruction: "整理",
-  })
-  assert.equal(prompt.includes("# 当前任务状态"), false)
-})
-
-test("输出校验只忽略未出现或格式不完整的标题", () => {
-  assert.equal(hasRequiredCompactionHeadings(profile, "## 人物状态\nA\n## 当前情节\nB"), true)
-  assert.equal(hasRequiredCompactionHeadings(profile, "人物状态\n当前情节"), false)
-  assert.equal(hasRequiredCompactionHeadings(profile, "## 人物状态\nA"), false)
+test("section 标题非法或重复时立即失败", () => {
+  const builder = new CompactionPromptBuilder().addSection("额外上下文", () => "内容")
+  assert.throws(
+    () => builder.addSection("额外上下文", () => "重复"),
+    /标题重复/,
+  )
+  assert.throws(
+    () => builder.addSection("# 额外上下文", () => "带井号"),
+    /不需要填写 Markdown/,
+  )
+  assert.throws(
+    () => builder.addSection("多行\n标题", () => "不能包含换行"),
+    /不能包含换行/,
+  )
 })

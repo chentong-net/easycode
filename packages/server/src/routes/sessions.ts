@@ -83,9 +83,9 @@ export const sessionRoutes: FastifyPluginAsyncZod<SessionRoutesOptions> =
                 ...(request.body.modelConfigID === undefined
                   ? {}
                   : { modelConfigID: request.body.modelConfigID }),
-                ...(request.body.compactionProfileID === undefined
+                ...(request.body.promptProfileID === undefined
                   ? {}
-                  : { compactionProfileID: request.body.compactionProfileID }),
+                  : { promptProfileID: request.body.promptProfileID }),
                 ...(request.body.reasoningEffort === undefined
                   ? {}
                   : { reasoningEffort: request.body.reasoningEffort }),

@@ -18,7 +18,7 @@ export const API_PREFIX = "/api"
  * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
  * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
-export const API_VERSION = "0.15.0"
+export const API_VERSION = "0.16.0"
 
 /** 鉴权头名称。桌面端的渲染进程从 preload 拿到 token 后放在这个头里。 */
 export const AUTH_HEADER = "x-easycode-token"
@@ -55,11 +55,11 @@ export const Endpoints = {
   /** 使用已保存的模型配置测试连接 */
   testModelConfig: (id: string): string => `${API_PREFIX}/model-configs/${segment(id)}/test`,
 
-  /** 压缩配置集合：GET 列表 / POST 新建 */
-  compactionProfiles: (): string => `${API_PREFIX}/compaction-profiles`,
+  /** 场景提示配置集合：GET 列表 / POST 新建 */
+  promptProfiles: (): string => `${API_PREFIX}/prompt-profiles`,
 
-  /** 单个压缩配置：GET 详情 / PUT 更新 / DELETE 删除 */
-  compactionProfile: (id: string): string => `${API_PREFIX}/compaction-profiles/${segment(id)}`,
+  /** 单个场景提示配置：GET 详情 / PUT 更新 / DELETE 删除 */
+  promptProfile: (id: string): string => `${API_PREFIX}/prompt-profiles/${segment(id)}`,
 
   /** 运行配置：GET 读取 / PUT 保存 */
   config: (): string => `${API_PREFIX}/config`,
@@ -106,7 +106,7 @@ export const Endpoints = {
   /** 会话当前任务进度 */
   task: (sessionID: string): string => `${sessionPath(sessionID)}/task`,
 
-  /** 补齐旧会话缺失的模型、推理等级或压缩配置 */
+  /** 补齐旧会话缺失的模型、推理等级或提示配置 */
   sessionConfiguration: (sessionID: string): string => `${sessionPath(sessionID)}/configuration`,
 
   /** 提交一条用户输入 */

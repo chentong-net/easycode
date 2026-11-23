@@ -1,5 +1,5 @@
 import type { JsonObject } from "@easycode/schema"
-import type { CompactionProfileSummary, ModelConfigSummary } from "@easycode/protocol"
+import type { PromptProfileSummary, ModelConfigSummary } from "@easycode/protocol"
 import type { ReasoningEffort } from "@easycode/schema"
 import { ArrowUp, Bot, Image as ImageIcon, LoaderCircle, Plus, Square, X } from "lucide-react"
 import {
@@ -36,15 +36,15 @@ interface ImageSelection {
 export const Composer = ({
   running,
   inputDisabled = false,
-  compactionProfiles,
-  compactionProfileID,
+  promptProfiles,
+  promptProfileID,
   modelConfigs,
   modelConfigID,
   availableReasoningEfforts,
   reasoningEffort,
   configurationLocked,
   configurationComplete,
-  onCompactionProfileChange,
+  onPromptProfileChange,
   onModelConfigChange,
   onReasoningEffortChange,
   onPrepareImage,
@@ -54,15 +54,15 @@ export const Composer = ({
   running: boolean
   /** 有必须通过专用卡片回答的问题时暂停普通输入。 */
   inputDisabled?: boolean
-  compactionProfiles: CompactionProfileSummary[]
-  compactionProfileID: string
+  promptProfiles: PromptProfileSummary[]
+  promptProfileID: string
   modelConfigs: ModelConfigSummary[]
   modelConfigID: string
   availableReasoningEfforts: ReasoningEffort[]
   reasoningEffort: ReasoningEffort | ""
   configurationLocked: boolean
   configurationComplete: boolean
-  onCompactionProfileChange: (profileID: string) => void
+  onPromptProfileChange: (profileID: string) => void
   onModelConfigChange: (modelConfigID: string) => void
   onReasoningEffortChange: (effort: ReasoningEffort | "") => void
   onPrepareImage: (path: string, signal?: AbortSignal) => Promise<JsonObject>
@@ -211,22 +211,22 @@ export const Composer = ({
   const uploading = images.some((item) => item.phase === "uploading")
   const allImagesReady = images.every((item) => item.phase === "ready")
   const hasReadyImage = images.some((item) => item.phase === "ready")
-  const selectedProfile = compactionProfiles.find((profile) => profile.id === compactionProfileID)
+  const selectedProfile = promptProfiles.find((profile) => profile.id === promptProfileID)
   const selectedModel = modelConfigs.find((config) => config.id === modelConfigID)
-  const profileOptions = compactionProfiles.length
-    ? compactionProfiles
+  const profileOptions = promptProfiles.length
+    ? promptProfiles
     : [fallbackCodingProfile()]
-  const profilesLoaded = compactionProfiles.length > 0
+  const profilesLoaded = promptProfiles.length > 0
   const profileMissing =
     profilesLoaded &&
-    compactionProfileID.length > 0 &&
+    promptProfileID.length > 0 &&
     selectedProfile === undefined &&
-    compactionProfileID !== "coding"
+    promptProfileID !== "coding"
   const profileLoading =
     !profilesLoaded &&
-    compactionProfileID.length > 0 &&
+    promptProfileID.length > 0 &&
     selectedProfile === undefined &&
-    compactionProfileID !== "coding"
+    promptProfileID !== "coding"
   const canSend =
     (draft.trim().length > 0 || hasReadyImage) &&
     allImagesReady &&
@@ -328,22 +328,22 @@ export const Composer = ({
           >
             <Bot size={14} strokeWidth={ICON_STROKE} aria-hidden />
             <select
-              value={compactionProfileID}
-              onChange={(event) => onCompactionProfileChange(event.target.value)}
+              value={promptProfileID}
+              onChange={(event) => onPromptProfileChange(event.target.value)}
               disabled={configurationLocked || submitting || inputDisabled}
-              aria-label="压缩配置"
+              aria-label="提示配置"
             >
-              <option value="">请选择压缩配置</option>
+              <option value="">请选择提示配置</option>
               {profileMissing && (
-                <option value={compactionProfileID}>压缩配置已丢失</option>
+                <option value={promptProfileID}>提示配置已丢失</option>
               )}
               {profileLoading && (
-                <option value={compactionProfileID}>正在读取压缩配置…</option>
+                <option value={promptProfileID}>正在读取提示配置…</option>
               )}
               {profileOptions.map((profile) => (
                 <option value={profile.id} key={profile.id}>
                   {profile.name}
-                  {profile.builtIn ? "（默认）" : ""}
+                  {profile.id === "coding" ? "（默认）" : ""}
                 </option>
               ))}
             </select>
@@ -398,21 +398,19 @@ export const Composer = ({
   )
 }
 
-const fallbackCodingProfile = (): CompactionProfileSummary => ({
+const fallbackCodingProfile = (): PromptProfileSummary => ({
   id: "coding",
   name: "Coding",
-  description: "默认编程压缩配置",
-  revision: 1,
-  builtIn: true,
+  description: "默认编程与代码修改场景",
   createdAt: 0,
   updatedAt: 0,
 })
 
 const profileTitle = (locked: boolean, missing: boolean, loading: boolean): string => {
-  if (loading) return "正在读取当前会话的压缩配置"
-  if (missing) return "当前会话使用的压缩配置已丢失"
-  if (locked) return "会话正在运行，暂不能更换压缩配置"
-  return "选择新会话使用的压缩配置"
+  if (loading) return "正在读取当前会话的提示配置"
+  if (missing) return "当前会话使用的提示配置已丢失"
+  if (locked) return "会话正在运行，暂不能更换提示配置"
+  return "选择新会话使用的提示配置"
 }
 
 const formatReasoningEffort = (effort: ReasoningEffort): string =>

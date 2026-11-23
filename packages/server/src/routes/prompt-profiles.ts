@@ -1,8 +1,8 @@
 import {
   ApiResponse,
-  CompactionProfileDraftRequest,
-  CompactionProfileListResponse,
-  CompactionProfileResponse,
+  PromptProfileDraftRequest,
+  PromptProfileListResponse,
+  PromptProfileResponse,
 } from "@easycode/protocol"
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod"
 import { z } from "zod"
@@ -19,9 +19,9 @@ const ProfileParams = z.object({
 const NullData = z.null()
 const MAX_PROFILE_BODY_BYTES = 2 * 1024 * 1024
 
-export interface CompactionProfileRoutesOptions extends RouteContext {}
+export interface PromptProfileRoutesOptions extends RouteContext {}
 
-export const compactionProfileRoutes: FastifyPluginAsyncZod<CompactionProfileRoutesOptions> =
+export const promptProfileRoutes: FastifyPluginAsyncZod<PromptProfileRoutesOptions> =
   async (app, options) => {
     const { core } = options
 
@@ -29,18 +29,16 @@ export const compactionProfileRoutes: FastifyPluginAsyncZod<CompactionProfileRou
       "/",
       {
         schema: {
-          response: { 200: ApiResponse(CompactionProfileListResponse) },
+          response: { 200: ApiResponse(PromptProfileListResponse) },
         },
       },
       async () => {
-        const profiles = await core.compactionProfiles.list()
+        const profiles = await core.promptProfiles.list()
         return success(
           profiles.map((profile) => ({
             id: profile.id,
             name: profile.name,
             ...(profile.description === undefined ? {} : { description: profile.description }),
-            revision: profile.revision,
-            builtIn: profile.builtIn,
             createdAt: profile.createdAt,
             updatedAt: profile.updatedAt,
           })),
@@ -53,12 +51,12 @@ export const compactionProfileRoutes: FastifyPluginAsyncZod<CompactionProfileRou
       {
         schema: {
           params: ProfileParams,
-          response: { 200: ApiResponse(CompactionProfileResponse) },
+          response: { 200: ApiResponse(PromptProfileResponse) },
         },
       },
       async (request) => {
         try {
-          return success(await core.compactionProfiles.require(request.params.profileID))
+          return success(await core.promptProfiles.require(request.params.profileID))
         } catch (error) {
           throw businessFailure(error)
         }
@@ -70,13 +68,13 @@ export const compactionProfileRoutes: FastifyPluginAsyncZod<CompactionProfileRou
       {
         bodyLimit: MAX_PROFILE_BODY_BYTES,
         schema: {
-          body: CompactionProfileDraftRequest,
-          response: { 200: ApiResponse(CompactionProfileResponse) },
+          body: PromptProfileDraftRequest,
+          response: { 200: ApiResponse(PromptProfileResponse) },
         },
       },
       async (request) => {
         try {
-          return success(await core.compactionProfiles.create(request.body))
+          return success(await core.promptProfiles.create(request.body))
         } catch (error) {
           throw businessFailure(error)
         }
@@ -89,14 +87,14 @@ export const compactionProfileRoutes: FastifyPluginAsyncZod<CompactionProfileRou
         bodyLimit: MAX_PROFILE_BODY_BYTES,
         schema: {
           params: ProfileParams,
-          body: CompactionProfileDraftRequest,
-          response: { 200: ApiResponse(CompactionProfileResponse) },
+          body: PromptProfileDraftRequest,
+          response: { 200: ApiResponse(PromptProfileResponse) },
         },
       },
       async (request) => {
         try {
           return success(
-            await core.compactionProfiles.update(request.params.profileID, request.body),
+            await core.promptProfiles.update(request.params.profileID, request.body),
           )
         } catch (error) {
           throw businessFailure(error)
@@ -114,7 +112,7 @@ export const compactionProfileRoutes: FastifyPluginAsyncZod<CompactionProfileRou
       },
       async (request) => {
         try {
-          await core.compactionProfiles.delete(request.params.profileID)
+          await core.promptProfiles.delete(request.params.profileID)
           return success(null)
         } catch (error) {
           throw businessFailure(error)

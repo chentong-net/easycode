@@ -2,7 +2,7 @@ import type { EasyCodeClient } from "@easycode/client"
 import { useState } from "react"
 
 import { Chat } from "./Chat"
-import { CompactionProfilesDialog } from "./CompactionProfiles"
+import { PromptProfilesDialog } from "./PromptProfiles"
 import { SettingsDialog } from "./Settings"
 import { Sidebar } from "./Sidebar"
 import { useEasyCode } from "./store"
@@ -22,7 +22,7 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
   const store = useEasyCode(client, workspace.directory)
   const error = store.error ?? workspace.error
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [compactionProfilesOpen, setCompactionProfilesOpen] = useState(false)
+  const [promptProfilesOpen, setPromptProfilesOpen] = useState(false)
 
   return (
     <>
@@ -31,7 +31,7 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
           <Sidebar
             store={store}
             workspace={workspace}
-            onOpenCompactionProfiles={() => setCompactionProfilesOpen(true)}
+            onOpenPromptProfiles={() => setPromptProfilesOpen(true)}
             onOpenSettings={() => setSettingsOpen(true)}
           />
           <Chat store={store} workspace={workspace} />
@@ -44,11 +44,11 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
         onClose={() => setSettingsOpen(false)}
         onModelConfigsChanged={store.refreshModelConfigs}
       />
-      <CompactionProfilesDialog
+      <PromptProfilesDialog
         client={client}
-        open={compactionProfilesOpen}
-        onClose={() => setCompactionProfilesOpen(false)}
-        onChanged={store.refreshCompactionProfiles}
+        open={promptProfilesOpen}
+        onClose={() => setPromptProfilesOpen(false)}
+        onChanged={store.refreshPromptProfiles}
       />
 
       {error !== undefined && (

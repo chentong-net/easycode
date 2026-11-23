@@ -39,10 +39,12 @@ export const Session = z.object({
   /** 当前会话绑定的模型配置。旧会话没有该字段时由界面提示用户选择。 */
   modelConfigID: z.string().trim().min(1).optional(),
   /**
-   * 当前会话绑定的压缩配置。
+   * 当前会话绑定的场景提示配置。
    *
    * 空闲时可通过会话配置接口重新选择；旧会话没有该字段时由界面提示用户选择。
    */
+  promptProfileID: z.string().trim().min(1).optional(),
+  /** 未发布版本的旧字段，读取旧会话时迁移为 promptProfileID。 */
   compactionProfileID: z.string().trim().min(1).optional(),
   /**
    * 用户选择的 reasoning effort。

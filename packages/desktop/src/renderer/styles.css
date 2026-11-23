@@ -2260,7 +2260,7 @@ pre {
   margin-top: 16px;
 }
 
-/* -------------------------------------------------------------- 压缩配置 */
+/* -------------------------------------------------------------- 提示配置 */
 
 .compaction-profile-panel {
   width: min(940px, calc(100vw - 32px));
@@ -2322,12 +2322,6 @@ pre {
   font-size: 10.5px;
 }
 
-.compaction-profile-name small {
-  flex: none;
-  color: var(--text-faint);
-  font-size: 10.5px;
-}
-
 .compaction-profile-copy p {
   margin: 4px 0 0;
   overflow: hidden;
@@ -2359,27 +2353,6 @@ pre {
 .compaction-profile-textarea {
   min-height: 96px !important;
   line-height: 1.55;
-}
-
-.compaction-profile-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  color: var(--text-dim);
-  font-size: 12.5px;
-}
-
-.compaction-profile-check input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--text);
-}
-
-.compaction-profile-instructions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
 }
 
 .compaction-profile-headings {
@@ -2501,10 +2474,6 @@ pre {
 
   .settings-footer-actions {
     justify-content: flex-end;
-  }
-
-  .compaction-profile-instructions {
-    grid-template-columns: 1fr;
   }
 
   .compaction-profile-item {

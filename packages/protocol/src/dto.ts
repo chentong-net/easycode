@@ -2,8 +2,8 @@ import { z } from "zod"
 
 import {
   Delivery,
-  CompactionProfile,
-  CompactionProfileDraft,
+  PromptProfile,
+  PromptProfileDraft,
   JsonObjectSchema,
   Message,
   PermissionReply,
@@ -160,31 +160,29 @@ export const ModelConfigUpdateRequest = z
 
 export type ModelConfigUpdateRequest = z.infer<typeof ModelConfigUpdateRequest>
 
-/** 压缩配置列表项。完整提示词只在编辑详情时返回。 */
-export const CompactionProfileSummary = z.object({
+/** 场景提示配置列表项。完整提示词只在编辑详情时返回。 */
+export const PromptProfileSummary = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
-  revision: z.number().int().positive(),
-  builtIn: z.boolean(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 })
 
-export type CompactionProfileSummary = z.infer<typeof CompactionProfileSummary>
+export type PromptProfileSummary = z.infer<typeof PromptProfileSummary>
 
-export const CompactionProfileListResponse = z.array(CompactionProfileSummary)
+export const PromptProfileListResponse = z.array(PromptProfileSummary)
 
-export type CompactionProfileListResponse = z.infer<typeof CompactionProfileListResponse>
+export type PromptProfileListResponse = z.infer<typeof PromptProfileListResponse>
 
-/** 新建或更新压缩配置时由客户端提交的可编辑字段。 */
-export const CompactionProfileDraftRequest = CompactionProfileDraft
+/** 新建或更新场景提示配置时由客户端提交的可编辑字段。 */
+export const PromptProfileDraftRequest = PromptProfileDraft
 
-export type CompactionProfileDraftRequest = z.infer<typeof CompactionProfileDraftRequest>
+export type PromptProfileDraftRequest = z.infer<typeof PromptProfileDraftRequest>
 
-export const CompactionProfileResponse = CompactionProfile
+export const PromptProfileResponse = PromptProfile
 
-export type CompactionProfileResponse = z.infer<typeof CompactionProfileResponse>
+export type PromptProfileResponse = z.infer<typeof PromptProfileResponse>
 
 /** 会话列表与详情。直接复用语义类型，因为它就是界面要展示的东西。 */
 export const SessionListResponse = z.array(Session)
@@ -265,7 +263,7 @@ export const CreateSessionRequest = z.object({
   title: z.string().optional(),
   modelConfigID: z.string().trim().min(1).optional(),
   /** 省略时使用内置 coding；之后可通过会话配置接口更新。 */
-  compactionProfileID: z.string().trim().min(1).optional(),
+  promptProfileID: z.string().trim().min(1).optional(),
   reasoningEffort: ReasoningEffort.optional(),
 })
 
@@ -275,7 +273,7 @@ export type CreateSessionRequest = z.infer<typeof CreateSessionRequest>
 export const SessionConfigurationRequest = z
   .object({
     modelConfigID: z.string().trim().min(1).optional(),
-    compactionProfileID: z.string().trim().min(1).optional(),
+    promptProfileID: z.string().trim().min(1).optional(),
     reasoningEffort: ReasoningEffort.nullable().optional(),
   })
   .strict()

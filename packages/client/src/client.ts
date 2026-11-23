@@ -3,9 +3,9 @@ import {
   AgentListResponse,
   BulkDeleteSessionsRequest,
   BulkDeleteSessionsResponse,
-  CompactionProfileDraftRequest,
-  CompactionProfileListResponse,
-  CompactionProfileResponse,
+  PromptProfileDraftRequest,
+  PromptProfileListResponse,
+  PromptProfileResponse,
   CreateWorkspaceRequest,
   DeleteWorkspaceResponse,
   Endpoints,
@@ -122,15 +122,15 @@ export interface EasyCodeClient {
     test(id: string, signal?: AbortSignal): Promise<ModelConnectionTestResponse>
     delete(id: string, signal?: AbortSignal): Promise<void>
   }
-  compactionProfiles: {
-    list(signal?: AbortSignal): Promise<CompactionProfileListResponse>
-    get(id: string, signal?: AbortSignal): Promise<CompactionProfileResponse>
-    create(input: CompactionProfileDraftRequest, signal?: AbortSignal): Promise<CompactionProfileResponse>
+  promptProfiles: {
+    list(signal?: AbortSignal): Promise<PromptProfileListResponse>
+    get(id: string, signal?: AbortSignal): Promise<PromptProfileResponse>
+    create(input: PromptProfileDraftRequest, signal?: AbortSignal): Promise<PromptProfileResponse>
     update(
       id: string,
-      input: CompactionProfileDraftRequest,
+      input: PromptProfileDraftRequest,
       signal?: AbortSignal,
-    ): Promise<CompactionProfileResponse>
+    ): Promise<PromptProfileResponse>
     delete(id: string, signal?: AbortSignal): Promise<void>
   }
   images: {
@@ -226,17 +226,17 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
       },
     },
 
-    compactionProfiles: {
+    promptProfiles: {
       list: (signal) =>
-        get(transport, Endpoints.compactionProfiles(), CompactionProfileListResponse, signal),
+        get(transport, Endpoints.promptProfiles(), PromptProfileListResponse, signal),
       get: (id, signal) =>
-        get(transport, Endpoints.compactionProfile(id), CompactionProfileResponse, signal),
+        get(transport, Endpoints.promptProfile(id), PromptProfileResponse, signal),
       create: (input, signal) =>
-        post(transport, Endpoints.compactionProfiles(), input, CompactionProfileResponse, signal),
+        post(transport, Endpoints.promptProfiles(), input, PromptProfileResponse, signal),
       update: (id, input, signal) =>
-        put(transport, Endpoints.compactionProfile(id), input, CompactionProfileResponse, signal),
+        put(transport, Endpoints.promptProfile(id), input, PromptProfileResponse, signal),
       delete: async (id, signal) => {
-        await requestDelete(transport, Endpoints.compactionProfile(id), signal)
+        await requestDelete(transport, Endpoints.promptProfile(id), signal)
       },
     },
 

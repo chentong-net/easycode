@@ -8,31 +8,12 @@ import { createApplication } from "./app.js"
 const token = "test-token"
 const auth = { "x-easycode-token": token }
 const codingProfile = {
-  schemaVersion: 1,
   id: "coding",
-  revision: 1,
-  builtIn: true,
   name: "Coding",
-  description: "默认编程压缩配置",
-  agentSystemPrompt: "你是一个编程助手。",
-  systemPrompt: "整理编程记忆",
-  includeTaskState: true,
-  instructions: {
-    initial: "整理",
-    chunk: "分块",
-    merge: "合并",
-    correction: "纠正",
-  },
-  sectionTitles: {
-    previousSummary: "已有摘要",
-    taskState: "当前任务状态",
-    transcript: "待压缩对话",
-    instruction: "压缩要求",
-  },
-  format: {
-    type: "headings",
-    headings: ["目标", "下一步"],
-  },
+  description: "默认编程与代码修改场景",
+  systemPrompt: "你是一个编程助手。",
+  compactionSystemPrompt: "整理编程记忆",
+  compactionHeadings: ["目标", "下一步"],
   createdAt: 0,
   updatedAt: 0,
 }
@@ -56,25 +37,23 @@ before(async () => {
     agents: {
       all: () => [{ id: "build", description: "test" }],
     },
-    compactionProfiles: {
+    promptProfiles: {
       list: async () => [codingProfile],
       require: async (id: string) => {
         if (id === "coding") return codingProfile
-        throw new Error(`压缩配置不存在：${id}`)
+        throw new Error(`提示配置不存在：${id}`)
       },
       create: async (input: { name: string }) => ({
         ...codingProfile,
         id: "custom",
-        revision: 1,
-        builtIn: false,
         name: input.name,
       }),
       update: async () => {
-        throw new Error("内置 Coding 压缩配置不能修改")
+        throw new Error("内置 Coding 提示配置不能修改")
       },
       get: async (id: string) => (id === "coding" ? codingProfile : undefined),
       delete: async () => {
-        throw new Error("内置 Coding 压缩配置不能删除")
+        throw new Error("内置 Coding 提示配置不能删除")
       },
     },
     sessions: {
@@ -108,7 +87,7 @@ test("health uses the success envelope", async () => {
     message: "SUCCESS",
     data: {
       ok: true,
-      version: "0.15.0",
+      version: "0.16.0",
       model: "test-model",
       contextWindow: 128_000,
       maxOutputTokens: 8_192,
@@ -134,10 +113,10 @@ test("image platforms are loaded through the success envelope", async () => {
   })
 })
 
-test("compaction profile list only exposes summaries", async () => {
+test("prompt profile list only exposes summaries", async () => {
   const response = await application.app.inject({
     method: "GET",
-    url: "/api/compaction-profiles",
+    url: "/api/prompt-profiles",
     headers: auth,
   })
 
@@ -146,26 +125,27 @@ test("compaction profile list only exposes summaries", async () => {
   assert.deepEqual(data[0], {
     id: "coding",
     name: "Coding",
-    description: "默认编程压缩配置",
-    revision: 1,
-    builtIn: true,
+    description: "默认编程与代码修改场景",
     createdAt: 0,
     updatedAt: 0,
   })
   assert.equal("systemPrompt" in data[0]!, false)
+  assert.equal("compactionSystemPrompt" in data[0]!, false)
+  assert.equal("revision" in data[0]!, false)
+  assert.equal("builtIn" in data[0]!, false)
 })
 
-test("built-in compaction profile cannot be deleted", async () => {
+test("built-in prompt profile cannot be deleted", async () => {
   const response = await application.app.inject({
     method: "DELETE",
-    url: "/api/compaction-profiles/coding",
+    url: "/api/prompt-profiles/coding",
     headers: auth,
   })
 
   assert.equal(response.statusCode, 200)
   assert.deepEqual(response.json(), {
     code: -1,
-    message: "内置 Coding 压缩配置不能删除",
+    message: "内置 Coding 提示配置不能删除",
   })
 })
 

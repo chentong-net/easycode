@@ -58,6 +58,8 @@ const SessionUpdated = z.object({
   usage: Usage.optional(),
   model: z.string().optional(),
   modelConfigID: z.string().optional(),
+  promptProfileID: z.string().optional(),
+  /** 未发布版本的旧字段，仅用于读取既有事件日志。 */
   compactionProfileID: z.string().optional(),
   reasoningEffort: ReasoningEffort.nullable().optional(),
   /** null 表示取消置顶。 */
@@ -214,9 +216,11 @@ const CompactionStarted = z.object({
   ...durableEnvelope,
   type: z.literal("compaction.started"),
   compactionID: z.string(),
-  reason: z.enum(["automatic", "overflow"]),
+  reason: z.enum(["automatic", "overflow", "manual"]),
   beforeTokens: z.number().int().nonnegative(),
-  /** 本次压缩捕获的配置身份，旧事件没有该字段。 */
+  /** 本次压缩捕获的提示配置身份，旧事件没有该字段。 */
+  promptProfileID: z.string().optional(),
+  /** 未发布版本的旧字段，仅用于读取既有事件日志。 */
   compactionProfileID: z.string().optional(),
   compactionProfileRevision: z.number().int().positive().optional(),
 })
@@ -226,7 +230,20 @@ const CompactionFailed = z.object({
   ...durableEnvelope,
   type: z.literal("compaction.failed"),
   compactionID: z.string(),
-  reason: z.enum(["nothing_to_compact", "aborted", "error"]),
+  reason: z.enum([
+    "nothing_to_compact",
+    "summary_input_too_large",
+    "summary_empty",
+    "summary_truncated",
+    "summary_invalid",
+    "summary_not_smaller",
+    "provider_error",
+    "configuration_error",
+    "busy",
+    "aborted",
+    "error",
+  ]),
+  message: z.string().optional(),
 })
 
 /** compaction（压缩）完成：旧历史被这条 checkpoint（检查点）消息替代。 */
@@ -237,11 +254,14 @@ const CompactionEnded = z.object({
   text: z.string(),
   /** 执行 compaction 时原样保留的最近消息 id，按原顺序排列 */
   recentMessageIDs: z.array(z.string()),
+  /** `fallback` 仅存在于旧事件；新 compaction 不再生成降级 checkpoint。 */
   reason: z.enum(["automatic", "overflow", "manual", "fallback"]).optional(),
   beforeTokens: z.number().int().nonnegative().optional(),
   afterTokens: z.number().int().nonnegative().optional(),
+  /** 旧版本的诊断字段，仅用于读取既有事件日志。 */
   attempts: z.number().int().positive().optional(),
   usedFallback: z.boolean().optional(),
+  promptProfileID: z.string().optional(),
   compactionProfileID: z.string().optional(),
   compactionProfileRevision: z.number().int().positive().optional(),
 })

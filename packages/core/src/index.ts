@@ -6,7 +6,7 @@
  * 因此这里不允许出现任何 HTTP 框架、端口监听、UI 框架相关的代码。
  */
 export * from "./agent.js"
-export * from "./compaction-profile/index.js"
+export * from "./prompt/index.js"
 export * from "./config.js"
 export * from "./configuration.js"
 export * from "./core.js"

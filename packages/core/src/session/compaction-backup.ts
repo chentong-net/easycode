@@ -8,7 +8,7 @@ import type { LLMMessage, LLMRequest } from "../llm/types.js"
 import type { Logger } from "../log.js"
 import { writeFileAtomic } from "../util/atomic.js"
 
-export type CompactionBackupReason = "automatic" | "overflow"
+export type CompactionBackupReason = "automatic" | "overflow" | "manual"
 
 export interface CompactionBackup {
   readonly id: string
@@ -28,8 +28,7 @@ export interface PrepareCompactionBackupInput {
   sessionID: string
   reason: CompactionBackupReason
   model: string
-  compactionProfileID: string
-  compactionProfileRevision: number
+  promptProfileID: string
   baselineSeq: number
   system: string[]
   messages: LLMMessage[]
@@ -41,7 +40,7 @@ export interface PrepareCompactionBackupInput {
 }
 
 export interface SummaryBackupInput {
-  purpose: "initial" | "corrected" | "chunk" | "merge" | "retry"
+  purpose: "summary"
   request: LLMRequest
   response: {
     text: string
@@ -95,13 +94,12 @@ export const createCompactionBackupStore = (
         beforeTokens: input.beforeTokens,
         summaryCalls: 0,
         metadata: {
-          version: 1,
+          version: 2,
           id: input.id,
           sessionID: input.sessionID,
           triggerReason: input.reason,
           model: input.model,
-          compactionProfileID: input.compactionProfileID,
-          compactionProfileRevision: input.compactionProfileRevision,
+          promptProfileID: input.promptProfileID,
           baselineSeq: input.baselineSeq,
           beforeTokens: input.beforeTokens,
           budget: input.budget,
@@ -142,7 +140,7 @@ export const createCompactionBackupStore = (
       await mkdir(directory, { recursive: true, mode: 0o700 })
       await chmod(directory, 0o700).catch(() => undefined)
       await writeJSON(join(directory, `${sequence}.json`), {
-        version: 1,
+        version: 2,
         sequence: backup.summaryCalls,
         purpose: input.purpose,
         request: requestSnapshot(input.request),
@@ -217,7 +215,7 @@ export const createCompactionBackupStore = (
 }
 
 const backupMetadata = (backup: CompactionBackup) => ({
-  version: 1,
+  version: 2,
   id: backup.id,
   sessionID: backup.sessionID,
   ...timeInfo(backup.startedAt),

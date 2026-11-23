@@ -161,7 +161,7 @@ test("旧会话可补齐并重新选择思考强度", async () => {
     payload: {
       directory,
       modelConfigID,
-      compactionProfileID: "coding",
+      promptProfileID: "coding",
     },
   })
   assert.equal(sessionResponse.statusCode, 200)

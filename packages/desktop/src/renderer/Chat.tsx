@@ -372,15 +372,15 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
         {store.pendingQuestions.length === 0 && (
           <Composer
             running={store.running}
-            compactionProfiles={store.compactionProfiles}
-            compactionProfileID={store.compactionProfileID}
+            promptProfiles={store.promptProfiles}
+            promptProfileID={store.promptProfileID}
             modelConfigs={store.modelConfigs}
             modelConfigID={store.modelConfigID}
             availableReasoningEfforts={store.availableReasoningEfforts}
             reasoningEffort={store.reasoningEffort}
             configurationLocked={store.configurationLocked}
             configurationComplete={store.configurationComplete}
-            onCompactionProfileChange={store.setPendingCompactionProfileID}
+            onPromptProfileChange={store.setPendingPromptProfileID}
             onModelConfigChange={store.setModelConfigID}
             onReasoningEffortChange={store.setReasoningEffort}
             onPrepareImage={store.prepareImage}
@@ -404,15 +404,15 @@ const NewConversation = ({ store }: { store: EasyCodeStore }) => (
     <div className="composer-area">
       <Composer
         running={false}
-        compactionProfiles={store.compactionProfiles}
-        compactionProfileID={store.compactionProfileID}
+        promptProfiles={store.promptProfiles}
+        promptProfileID={store.promptProfileID}
         modelConfigs={store.modelConfigs}
         modelConfigID={store.modelConfigID}
         availableReasoningEfforts={store.availableReasoningEfforts}
         reasoningEffort={store.reasoningEffort}
         configurationLocked={store.configurationLocked}
         configurationComplete={store.configurationComplete}
-        onCompactionProfileChange={store.setPendingCompactionProfileID}
+        onPromptProfileChange={store.setPendingPromptProfileID}
         onModelConfigChange={store.setModelConfigID}
         onReasoningEffortChange={store.setReasoningEffort}
         onPrepareImage={store.prepareImage}

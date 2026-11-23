@@ -1,574 +1,458 @@
 import type {
-  CompactionProfile,
   Message,
+  ModelConfig,
   Part,
-  ReasoningEffort,
-  TaskState,
-  Todo,
+  PromptProfile,
   ToolDefinition,
 } from "@easycode/schema"
 import { addUsage } from "@easycode/schema"
 
-import type { CoreConfig } from "../config.js"
+import { newMessageID } from "../id.js"
 import { describeError, LLMError } from "../llm/error.js"
 import type { LLMClient, LLMMessage, LLMRequest } from "../llm/types.js"
-import { newMessageID } from "../id.js"
 import { createLogger, type Logger } from "../log.js"
-import { estimateTextTokens } from "../util/token.js"
+import {
+  estimateTextTokens,
+  MESSAGE_OVERHEAD_TOKENS,
+} from "../util/token.js"
 import {
   createCompactionBackupStore,
   type CompactionBackup,
-  type SummaryBackupInput,
 } from "./compaction-backup.js"
+import {
+  COMPACTION_SECTION_TITLES,
+  CompactionPromptBuilder,
+  renderCompactionSystemPrompt,
+  type CompactionSection,
+} from "./compaction-prompt.js"
 import {
   buildLLMMessages,
   estimateRequestTokens,
   estimateUserContentTokens,
   selectHistoryMessages,
 } from "./history.js"
-import {
-  buildCompactionUserPrompt,
-  hasRequiredCompactionHeadings,
-  renderCompactionSystemPrompt,
-} from "./compaction-prompt.js"
 import type { SessionHandle } from "./runtime.js"
-import { taskMemorySummary } from "./task.js"
 
-/**
- * 历史 compaction（压缩）。
- *
- * 触发条件和保留区都由上下文窗口动态推导：先扣除实际输出预算和安全余量，
- * 再按目标大小决定最近原文的保留量，避免固定参数在小窗口下互相冲突。
- *
- * 四个刻意的设计：
- *
- * 1. **用同一个模型做摘要**。不引入第二个模型意味着不需要额外配置，
- *    代价是摘要本身也消耗 token。摘要请求刻意不携带工具，避免模型
- *    在总结时又去调用工具。
- * 2. **按完整交换保留最近原文**。摘要会丢失细节。保留区尽量从用户消息开始。
- * 3. **分层降级**。摘要输入过大时先分块再合并；模型摘要不可用时生成
- *    完全由引擎控制的确定性 checkpoint（检查点），让会话仍能继续。
- * 4. **配置与引擎分离**。提示词、section 标题和输出标题来自会话绑定的
- *    compaction-profile；压缩流程、预算、重试和降级不交给配置控制。
- */
+export type { CompactionSection } from "./compaction-prompt.js"
 
-/** 根据上下文窗口推导出的 compaction（压缩）预算，不再使用与窗口无关的固定值。 */
+export type CompactionReason = "automatic" | "overflow" | "manual"
+
 export interface CompactionBudget {
   contextWindow: number
-  /** 为 provider 实际声明的输出预留，最多占窗口的四分之一。 */
+  /** 主请求为模型输出预留的 token。 */
   outputTokens: number
-  /** 协议模板和估算误差的安全余量。 */
   safetyMargin: number
-  /** 触发 provider 请求前的硬输入上限。 */
   hardInputTokens: number
-  /** 达到该值时开始自动执行 compaction。 */
   triggerTokens: number
-  /** compaction 后希望达到的目标大小。 */
   targetTokens: number
-  /** compaction 后原样保留的最近原文，按估算 token 计 */
   keepTokens: number
-  /** 摘要请求最多可以使用的输入 token。 */
   summaryInputTokens: number
-  /** 摘要本身允许生成的最大 token。 */
   summaryOutputTokens: number
 }
 
-/** 摘要请求里单条工具结果的字符上限。compaction 的目的就是缩小体积，这里要更激进。 */
-const TRANSCRIPT_TOOL_OUTPUT_LIMIT = 2_000
+export type CompactionFailure =
+  | { kind: "nothing_to_compact" }
+  | { kind: "summary_input_too_large" }
+  | { kind: "summary_empty" }
+  | { kind: "summary_truncated" }
+  | { kind: "summary_invalid"; missingHeadings?: string[] }
+  | { kind: "summary_not_smaller" }
+  | {
+      kind: "provider_error"
+      message: string
+      providerCode?: string
+      status?: number
+    }
+  | { kind: "configuration_error"; message: string }
+  | { kind: "aborted" }
+  | { kind: "busy" }
 
-export type CompactionStatus = "skipped" | "completed" | "failed"
+export type CompactionResult =
+  | {
+      status: "completed"
+      beforeTokens: number
+      afterTokens: number
+      summarizedMessages: number
+      keptMessages: number
+      checkpointMessageID: string
+      backupID?: string
+    }
+  | {
+      status: "failed"
+      failure: CompactionFailure
+      beforeTokens?: number
+    }
 
-export interface CompactionOutcome {
-  status: CompactionStatus
-  reason: string
-  beforeTokens?: number
-  afterTokens?: number
-  attempts: number
-  usedFallback: boolean
-  /** 诊断备份 ID，Runner 用它在最终请求重建后写入 after.json。 */
-  backupID?: string
-}
-
-export interface CompactionDeps {
-  config: CoreConfig
+export interface CompactionRuntime {
   llm: LLMClient
-  logger?: Logger
+  modelConfig: ModelConfig
+  promptProfile: PromptProfile
 }
 
 export interface CompactInput {
-  handle: SessionHandle
-  /** 本次压缩捕获的不可变配置快照。 */
-  profile: CompactionProfile
-  /** 当前会话选择的模型；省略时兼容旧的固定模型路径。 */
-  model?: string
-  reasoningEffort?: ReasoningEffort
-  /** 当前 epoch（上下文周期）的 baseline（基线）序号 */
+  runtime: CompactionRuntime
+  reason: CompactionReason
   baselineSeq: number
-  /** 本次请求的完整系统提示词（agent 提示词 + baseline） */
+  /** 当前主请求的 system 数组，用于计算压缩前后真实请求体积。 */
   system: string[]
-  /** 本次请求的工具定义 */
-  tools: ToolDefinition[]
-  /** 本次请求的模型消息，用于估算占用 */
   messages: LLMMessage[]
+  tools: ToolDefinition[]
+  /** 追加到 transcript 前的自定义 section。回调在一次 compact 中只执行一次。 */
+  additionalSections?: readonly CompactionSection[]
   toolChoice?: "auto" | "none"
   signal?: AbortSignal
 }
 
-export interface CompactionManager {
-  /** 当前会话窗口对应的预算，Runner 也使用其中的输出预留。 */
-  budget(): CompactionBudget
-  /** 估算当前请求的 token 占用 */
-  estimate(system: string[], messages: LLMMessage[], tools: ToolDefinition[]): number
-  /** 必要时执行 compaction；调用方根据 completed 状态决定是否重建请求。 */
-  compactIfNeeded(input: CompactInput): Promise<CompactionOutcome>
-  /** 上下文超限后的强制 compaction。跳过节流判断，直接尝试。 */
-  compactAfterOverflow(input: CompactInput): Promise<CompactionOutcome>
-  /** 把最终重建、即将发送给主模型的请求写入 after.json。 */
-  recordAfter(backupID: string | undefined, request: LLMRequest): Promise<void>
+export interface CompactionOptions {
+  handle: SessionHandle
+  dataDir: string
+  logger?: Logger
 }
 
-export const createCompactionManager = (deps: CompactionDeps): CompactionManager => {
-  const logger = deps.logger ?? createLogger("session.compaction")
-  const options = calculateCompactionBudget(deps.config)
-  const backups = createCompactionBackupStore(deps.config.dataDir, logger)
+interface CompactionFailureContext {
+  beforeTokens?: number
+}
 
-  const estimate = (system: string[], messages: LLMMessage[], tools: ToolDefinition[]): number =>
-    estimateRequestTokens(system, messages, tools)
+const TRANSCRIPT_TOOL_OUTPUT_LIMIT = 2_000
 
-  const compactIfNeeded = async (input: CompactInput): Promise<CompactionOutcome> => {
-    const estimated = estimate(input.system, input.messages, input.tools)
-    const last = input.handle.state.messages.at(-1)
-    const afterCompaction = last?.role === "compaction"
+/**
+ * 一个会话持有的上下文压缩器。
+ *
+ * compact() 只执行一次摘要模型调用。它不重试、不分块、不合并，也不生成
+ * 引擎 fallback checkpoint；失败时旧历史和旧 checkpoint 保持不变，由上层
+ * 根据结构化 CompactionFailure 决定是否再次调用。
+ */
+export class Compaction {
+  private readonly backups
+  private readonly logger: Logger
+  private busy = false
 
-    if (afterCompaction ? estimated <= options.hardInputTokens : estimated <= options.triggerTokens) {
-      return { status: "skipped", reason: "context_fits", beforeTokens: estimated, attempts: 0, usedFallback: false }
+  constructor(private readonly options: CompactionOptions) {
+    this.logger = options.logger ?? createLogger("session.compaction")
+    this.backups = createCompactionBackupStore(options.dataDir, this.logger)
+  }
+
+  async compact(input: CompactInput): Promise<CompactionResult> {
+    if (this.busy) {
+      return { status: "failed", failure: { kind: "busy" } }
     }
 
-    logger.info("上下文接近上限，开始执行 compaction", {
-      sessionID: input.handle.id,
-      estimatedTokens: estimated,
-      triggerTokens: options.triggerTokens,
-      hardInputTokens: options.hardInputTokens,
-      contextWindow: options.contextWindow,
-    })
+    this.busy = true
+    const { handle } = this.options
+    let beforeTokens: number | undefined
+    let backup: CompactionBackup | undefined
+    let compactionID: string | undefined
 
-    return compact(input, "automatic", estimated)
-  }
-
-  const compactAfterOverflow = async (input: CompactInput): Promise<CompactionOutcome> => {
-    logger.info("模型报告上下文超限，尝试执行 compaction 后重试", { sessionID: input.handle.id })
-    return compact(input, "overflow", estimate(input.system, input.messages, input.tools))
-  }
-
-  const compact = async (
-    input: CompactInput,
-    reason: "automatic" | "overflow",
-    beforeTokens: number,
-  ): Promise<CompactionOutcome> => {
-    const state = input.handle.state
-    const messageID = newMessageID()
-    await input.handle.append({
-      type: "compaction.started",
-      sessionID: input.handle.id,
-      timestamp: Date.now(),
-      compactionID: messageID,
-      reason,
-      beforeTokens,
-      compactionProfileID: input.profile.id,
-      compactionProfileRevision: input.profile.revision,
-    })
-    const backup = await backups.prepare({
-      id: messageID,
-      sessionID: input.handle.id,
-      reason,
-      model: input.model ?? state.session.model,
-      compactionProfileID: input.profile.id,
-      compactionProfileRevision: input.profile.revision,
-      baselineSeq: input.baselineSeq,
-      system: input.system,
-      messages: input.messages,
-      tools: input.tools,
-      task: state.task,
-      beforeTokens,
-      budget: { ...options },
-      ...(input.toolChoice === undefined ? {} : { toolChoice: input.toolChoice }),
-    })
-    const history = selectHistoryMessages(state, input.baselineSeq)
-    const targetTokens =
-      reason === "overflow"
-        ? Math.max(512, Math.min(options.targetTokens, Math.floor(beforeTokens * 0.7)))
-        : options.targetTokens
-    const keepTokens = Math.max(256, Math.min(options.keepTokens, Math.floor(targetTokens * 0.25)))
-    const previous = history.find((message): message is Extract<Message, { role: "compaction" }> =>
-      message.role === "compaction",
-    )
-    const candidates = history.filter((message) => message.role !== "compaction")
-    const { head, tail } = splitHistory(candidates, keepTokens)
-
-    if (head.length === 0 || tail.length === 0) {
-      logger.warn("历史长度不足以执行 compaction，跳过", {
-        sessionID: input.handle.id,
-        head: head.length,
-        tail: tail.length,
-      })
-      await backups.finalize(backup, {
+    const fail = async (
+      failure: CompactionFailure,
+      context: CompactionFailureContext = {},
+    ): Promise<CompactionResult> => {
+      if (compactionID !== undefined) {
+        await handle
+          .append({
+            type: "compaction.failed",
+            sessionID: handle.id,
+            timestamp: Date.now(),
+            compactionID,
+            reason: failure.kind,
+            ...(failureMessage(failure) === undefined
+              ? {}
+              : { message: failureMessage(failure) }),
+          })
+          .catch((error: unknown) => {
+            this.logger.warn("无法写入 compaction 失败事件", {
+              sessionID: handle.id,
+              error: describeError(error),
+            })
+          })
+      }
+      await this.backups.finalize(backup, {
         status: "failed",
-        outcomeReason: "nothing_to_compact",
-        summarizedMessages: head.length,
-        keptMessages: tail.length,
-      })
-      await input.handle.append({
-        type: "compaction.failed",
-        sessionID: input.handle.id,
-        timestamp: Date.now(),
-        compactionID: messageID,
-        reason: "nothing_to_compact",
+        failure,
+        beforeTokens: context.beforeTokens,
       })
       return {
         status: "failed",
-        reason: "nothing_to_compact",
-        beforeTokens,
-        attempts: 1,
-        usedFallback: false,
-        ...(backup ? { backupID: backup.id } : {}),
+        failure,
+        ...(context.beforeTokens === undefined
+          ? {}
+          : { beforeTokens: context.beforeTokens }),
       }
     }
 
-    // 已有 checkpoint（检查点）作为摘要输入，但不混入待 compaction 的消息和保留区。
-    const subject = head
+    try {
+      beforeTokens = estimateRequestTokens(input.system, input.messages, input.tools)
+      const budget = calculateCompactionBudget(input.runtime.modelConfig)
+      const history = selectHistoryMessages(handle.state, input.baselineSeq)
+      const previous = [...history]
+        .reverse()
+        .find(
+          (message): message is Extract<Message, { role: "compaction" }> =>
+            message.role === "compaction",
+        )
+      const candidates = history.filter((message) => message.role !== "compaction")
+      const targetTokens =
+        input.reason === "overflow"
+          ? Math.max(512, Math.min(budget.targetTokens, Math.floor(beforeTokens * 0.7)))
+          : budget.targetTokens
+      const keepTokens = Math.max(
+        256,
+        Math.min(budget.keepTokens, Math.floor(targetTokens * 0.25)),
+      )
+      const { head: subject, tail } = splitHistory(candidates, keepTokens)
 
-    const summarized = await summarize({ ...input, previousSummary: previous?.text }, subject, backup)
-    if (!summarized && input.signal?.aborted) {
-      await backups.finalize(backup, {
-        status: "failed",
-        outcomeReason: "aborted",
-        summarizedMessages: subject.length,
-        keptMessages: tail.length,
-      })
-      await input.handle.append({
-        type: "compaction.failed",
-        sessionID: input.handle.id,
+      if (subject.length === 0 || tail.length === 0) {
+        return fail({ kind: "nothing_to_compact" }, { beforeTokens })
+      }
+
+      compactionID = newMessageID()
+      await handle.append({
+        type: "compaction.started",
+        sessionID: handle.id,
         timestamp: Date.now(),
-        compactionID: messageID,
-        reason: "aborted",
-      })
-      return {
-        status: "failed",
-        reason: "aborted",
+        compactionID,
+        reason: input.reason,
         beforeTokens,
-        attempts: 1,
-        usedFallback: false,
-        ...(backup ? { backupID: backup.id } : {}),
-      }
-    }
+        promptProfileID: input.runtime.promptProfile.id,
+      })
+      backup = await this.backups.prepare({
+        id: compactionID,
+        sessionID: handle.id,
+        reason: input.reason,
+        model: input.runtime.modelConfig.model,
+        promptProfileID: input.runtime.promptProfile.id,
+        baselineSeq: input.baselineSeq,
+        system: input.system,
+        messages: input.messages,
+        tools: input.tools,
+        task: handle.state.task,
+        beforeTokens,
+        budget: { ...budget },
+        ...(input.toolChoice === undefined ? {} : { toolChoice: input.toolChoice }),
+      })
 
-    const summary =
-      summarized?.text ??
-      buildFallbackSummary({
-        profile: input.profile,
+      const systemPrompt = renderCompactionSystemPrompt(input.runtime.promptProfile)
+      const prompt = buildSummaryPrompt({
         previousSummary: previous?.text,
-        task: input.handle.state.task,
-        todos: input.handle.state.session.todos,
-        subject,
-        tail,
-        maxTokens: options.summaryOutputTokens,
+        transcript: renderTranscript(subject),
+        additionalSections: input.additionalSections,
       })
-    const usedFallback = summarized === undefined
-    const attempts = summarized?.attempts ?? 1
-    if (usedFallback) {
-      logger.warn("模型摘要不可用，使用引擎生成确定性 checkpoint（检查点）", {
-        sessionID: input.handle.id,
-        summarizedMessages: subject.length,
-      })
-    }
+      const summaryRequestTokens =
+        estimateTextTokens(systemPrompt) +
+        estimateTextTokens(prompt) +
+        MESSAGE_OVERHEAD_TOKENS
+      if (summaryRequestTokens > budget.summaryInputTokens) {
+        this.logger.warn("摘要输入超过压缩请求预算", {
+          sessionID: handle.id,
+          summaryRequestTokens,
+          summaryInputTokens: budget.summaryInputTokens,
+        })
+        return fail({ kind: "summary_input_too_large" }, { beforeTokens })
+      }
 
-    await input.handle.append({
-      type: "compaction.ended",
-      sessionID: input.handle.id,
-      timestamp: Date.now(),
-      messageID,
-      text: summary,
-      recentMessageIDs: tail.map((message) => message.id),
-      reason: usedFallback ? "fallback" : reason === "overflow" ? "overflow" : "automatic",
-      beforeTokens,
-      attempts,
-      usedFallback,
-      compactionProfileID: input.profile.id,
-      compactionProfileRevision: input.profile.revision,
-    })
+      if (input.signal?.aborted) {
+        return fail({ kind: "aborted" }, { beforeTokens })
+      }
 
-    const afterMessages = buildLLMMessages(input.handle.state, { baselineSeq: input.baselineSeq })
-    const afterTokens = estimate(input.system, afterMessages, input.tools)
+      const request: LLMRequest = {
+        model: input.runtime.modelConfig.model,
+        system: [systemPrompt],
+        messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+        tools: [],
+        maxOutputTokens: budget.summaryOutputTokens,
+        sessionID: handle.id,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+      }
 
-    logger.info("compaction 完成", {
-      sessionID: input.handle.id,
-      summarizedMessages: subject.length,
-      keptMessages: tail.length,
-      keptTokens: estimateMessagesTokens(tail),
-      summaryChars: summary.length,
-      beforeTokens,
-      afterTokens,
-      triggerTokens: options.triggerTokens,
-      hardInputTokens: options.hardInputTokens,
-    })
-    if (afterTokens > options.triggerTokens) {
-      logger.warn("compaction 后仍高于软阈值，下一轮将继续收缩", {
-        sessionID: input.handle.id,
-        afterTokens,
-        triggerTokens: options.triggerTokens,
-      })
-    }
-    const outcomeReason = usedFallback
-      ? "fallback_checkpoint"
-      : reason === "overflow"
-        ? "overflow_compacted"
-        : "automatic_compacted"
-    await backups.finalize(backup, {
-      status: "completed",
-      outcomeReason,
-      summarizedMessages: subject.length,
-      keptMessages: tail.length,
-      keptTokens: estimateMessagesTokens(tail),
-      summaryChars: summary.length,
-      estimatedAfterTokens: afterTokens,
-      attempts,
-      usedFallback,
-      checkpointMessageID: messageID,
-    })
-    return {
-      status: "completed",
-      reason: outcomeReason,
-      beforeTokens,
-      afterTokens,
-      attempts,
-      usedFallback,
-      ...(backup ? { backupID: backup.id } : {}),
-    }
-  }
-
-  const summarize = async (
-    input: CompactInput & { previousSummary?: string },
-    subject: Message[],
-    backup: CompactionBackup | undefined,
-  ): Promise<{ text: string; attempts: number } | undefined> => {
-    const transcript = renderTranscript(subject)
-    const systemPrompt = renderCompactionSystemPrompt(input.profile)
-    const available =
-      options.summaryInputTokens - estimateTextTokens(systemPrompt) - 64
-    if (available < 256) return undefined
-    const previousSummary =
-      input.previousSummary === undefined
-        ? undefined
-        : truncateToTokenBudget(input.previousSummary, Math.floor(available * 0.25))
-    const taskMemory =
-      input.profile.includeTaskState && input.handle.state.task
-        ? truncateToTokenBudget(
-            taskMemorySummary(input.handle.state.task, input.handle.state.session.todos),
-            Math.max(128, Math.floor(available * 0.2)),
-          )
-        : undefined
-    const initialInstruction = previousSummary
-      ? input.profile.instructions.merge
-      : input.profile.instructions.initial
-    const prompt = buildCompactionUserPrompt(input.profile, {
-      transcript,
-      instruction: initialInstruction,
-      ...(previousSummary === undefined ? {} : { previousSummary }),
-      ...(taskMemory === undefined ? {} : { taskMemory }),
-    })
-    let attempts = 0
-
-    const run = async (
-      userPrompt: string,
-      purpose: SummaryBackupInput["purpose"],
-    ): Promise<{ text: string; finish: string; attempts: number } | undefined> => {
       let text = ""
       let finish = ""
-      let usage = undefined as Parameters<typeof addUsage>[0] | undefined
-      let attemptsUsed = 0
-
-      for (let callAttempt = 1; callAttempt <= 2; callAttempt += 1) {
-        attemptsUsed = callAttempt
-        text = ""
-        finish = ""
-        const request: LLMRequest = {
-          model: input.model ?? input.handle.state.session.model,
-          ...(input.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: input.reasoningEffort }),
-          system: [systemPrompt],
-          messages: [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
-          // 摘要请求不带工具：避免模型在总结时又去调用工具
-          tools: [],
-          maxOutputTokens: options.summaryOutputTokens,
-          sessionID: input.handle.id,
-          ...(input.signal ? { signal: input.signal } : {}),
+      let usage: Parameters<typeof addUsage>[0] | undefined
+      try {
+        for await (const event of input.runtime.llm.stream(request)) {
+          if (event.type === "text.delta") text += event.text
+          else if (event.type === "usage") usage = event.usage
+          else if (event.type === "finish") finish = event.reason
         }
-        try {
-          for await (const event of deps.llm.stream(request)) {
-            if (event.type === "text.delta") text += event.text
-            if (event.type === "usage") usage = event.usage
-            if (event.type === "finish") finish = event.reason
-          }
-          await backups.recordSummary(backup, {
-            purpose: callAttempt === 1 ? purpose : "retry",
-            request,
-            response: {
-              text,
-              finish,
-              usage,
-              validTemplate: hasRequiredCompactionHeadings(input.profile, text),
-              keepText:
-                purpose === "chunk" ||
-                finish === "length" ||
-                text.trim().length === 0 ||
-                !hasRequiredCompactionHeadings(input.profile, text),
-            },
-          })
-          break
-        } catch (error) {
-          await backups.recordSummary(backup, {
-            purpose: callAttempt === 1 ? purpose : "retry",
-            request,
-            response: {
-              text,
-              finish,
-              usage,
-              validTemplate: false,
-              error: describeError(error),
-              keepText: true,
-            },
-          })
-          if (
-            callAttempt === 1 &&
-            error instanceof LLMError &&
-            error.retryable &&
-            input.signal?.aborted !== true
-          ) {
-            logger.warn("摘要请求暂时失败，准备重试", {
-              sessionID: input.handle.id,
-              kind: error.kind,
-            })
-            try {
-              await delay(500, input.signal)
-            } catch {
-              return undefined
-            }
-            continue
-          }
-          logger.warn("摘要请求失败，本次不执行 compaction", {
-            sessionID: input.handle.id,
+      } catch (error) {
+        const failure = providerFailure(error, input.signal)
+        await this.backups.recordSummary(backup, {
+          purpose: "summary",
+          request,
+          response: {
+            text,
+            finish,
+            ...(usage === undefined ? {} : { usage }),
+            validTemplate: false,
             error: describeError(error),
-          })
-          return undefined
-        }
+            keepText: true,
+          },
+        })
+        return fail(failure, { beforeTokens })
       }
 
-      if (usage) {
-        // 摘要调用也是真实开销，计入会话累计用量，否则统计会偏低
-        await input.handle.append({
+      if (usage !== undefined) {
+        await handle.append({
           type: "session.updated",
-          sessionID: input.handle.id,
+          sessionID: handle.id,
           timestamp: Date.now(),
-          usage: addUsage(input.handle.state.session.usage, usage),
+          usage: addUsage(handle.state.session.usage, usage),
         })
       }
-      return { text: text.trim(), finish, attempts: attemptsUsed }
-    }
 
-    const valid = async (
-      userPrompt: string,
-      purpose: SummaryBackupInput["purpose"],
-    ): Promise<string | undefined> => {
-      const first = await run(userPrompt, purpose)
-      attempts += first?.attempts ?? 1
-      if (!first || first.finish === "length" || first.text.length === 0) return undefined
-      if (hasRequiredCompactionHeadings(input.profile, first.text)) return first.text
-
-      const corrected = await run(
-        `${userPrompt}\n\n${input.profile.instructions.correction}`,
-        "corrected",
+      const validation = validateSummary(
+        text,
+        finish,
+        input.runtime.promptProfile.compactionHeadings,
       )
-      attempts += corrected?.attempts ?? 1
-      if (!corrected || corrected.finish === "length" || corrected.text.length === 0) return undefined
-      return hasRequiredCompactionHeadings(input.profile, corrected.text) ? corrected.text : undefined
-    }
-
-    const fits = (value: string): boolean => estimateTextTokens(value) < available
-    if (fits(prompt)) {
-      const summary = await valid(prompt, "initial")
-      return summary ? { text: summary, attempts } : undefined
-    }
-
-    const chunks = splitMessagesForSummary(subject, Math.max(512, Math.floor(available * 0.75)))
-    if (chunks.length === 0 || chunks.length > 8) {
-      logger.warn("待执行 compaction 的历史无法稳定分块", { sessionID: input.handle.id, chunks: chunks.length })
-      return undefined
-    }
-
-    const parts: string[] = []
-    for (const chunk of chunks) {
-      const chunkPrompt = buildCompactionUserPrompt(input.profile, {
-        transcript: truncateToTokenBudget(renderTranscript(chunk), Math.floor(available * 0.9)),
-        instruction: input.profile.instructions.chunk,
+      await this.backups.recordSummary(backup, {
+        purpose: "summary",
+        request,
+        response: {
+          text,
+          finish,
+          ...(usage === undefined ? {} : { usage }),
+          validTemplate: validation === undefined,
+          ...(validation === undefined ? {} : { error: failureMessage(validation) }),
+          keepText: validation !== undefined,
+        },
       })
-      const part = await valid(chunkPrompt, "chunk")
-      if (!part) return undefined
-      parts.push(part)
+      if (validation !== undefined) return fail(validation, { beforeTokens })
+
+      const summary = text.trim()
+      if (estimateTextTokens(summary) >= estimateMessagesTokens(subject)) {
+        return fail({ kind: "summary_not_smaller" }, { beforeTokens })
+      }
+
+      const messageID = newMessageID()
+      const recentMessageIDs = tail.map((message) => message.id)
+      const checkpoint: Extract<Message, { role: "compaction" }> = {
+        id: messageID,
+        role: "compaction",
+        createdAt: Date.now(),
+        text: summary,
+        recentMessageIDs,
+      }
+      const afterMessages = buildLLMMessages(
+        {
+          ...handle.state,
+          messages: [...handle.state.messages, checkpoint],
+        },
+        { baselineSeq: input.baselineSeq },
+      )
+      const afterTokens = estimateRequestTokens(input.system, afterMessages, input.tools)
+      if (afterTokens >= beforeTokens || afterTokens > budget.hardInputTokens) {
+        this.logger.warn("摘要没有把最终请求缩小到安全范围，拒绝写入 checkpoint", {
+          sessionID: handle.id,
+          beforeTokens,
+          afterTokens,
+          hardInputTokens: budget.hardInputTokens,
+          summaryTokens: estimateTextTokens(summary),
+        })
+        return fail({ kind: "summary_not_smaller" }, { beforeTokens })
+      }
+
+      await handle.append({
+        type: "compaction.ended",
+        sessionID: handle.id,
+        timestamp: checkpoint.createdAt,
+        messageID,
+        text: summary,
+        recentMessageIDs,
+        reason: input.reason,
+        beforeTokens,
+        afterTokens,
+        promptProfileID: input.runtime.promptProfile.id,
+      })
+
+      await this.backups.finalize(backup, {
+        status: "completed",
+        summarizedMessages: subject.length,
+        keptMessages: tail.length,
+        keptTokens: estimateMessagesTokens(tail),
+        summaryTokens: estimateTextTokens(summary),
+        beforeTokens,
+        estimatedAfterTokens: afterTokens,
+        checkpointMessageID: messageID,
+      })
+      await this.backups.recordAfter(
+        backup?.id,
+        {
+          model: input.runtime.modelConfig.model,
+          system: input.system,
+          messages: afterMessages,
+          tools: input.tools,
+          maxOutputTokens: budget.outputTokens,
+          ...(input.toolChoice === undefined ? {} : { toolChoice: input.toolChoice }),
+          sessionID: handle.id,
+        },
+        afterTokens,
+      )
+
+      this.logger.info("compaction 完成", {
+        sessionID: handle.id,
+        summarizedMessages: subject.length,
+        keptMessages: tail.length,
+        beforeTokens,
+        afterTokens,
+        summaryTokens: estimateTextTokens(summary),
+        summaryOutputTokens: budget.summaryOutputTokens,
+        triggerTokens: budget.triggerTokens,
+      })
+
+      return {
+        status: "completed",
+        beforeTokens,
+        afterTokens,
+        summarizedMessages: subject.length,
+        keptMessages: tail.length,
+        checkpointMessageID: messageID,
+        ...(backup === undefined ? {} : { backupID: backup.id }),
+      }
+    } catch (error) {
+      this.logger.warn("compaction 执行失败", {
+        sessionID: handle.id,
+        error: describeError(error),
+      })
+      return fail(
+        {
+          kind: "configuration_error",
+          message: describeError(error),
+        },
+        beforeTokens === undefined ? {} : { beforeTokens },
+      )
+    } finally {
+      this.busy = false
     }
-    if (parts.length === 1 && previousSummary === undefined && taskMemory === undefined) {
-      return { text: parts[0] as string, attempts }
-    }
-
-    const mergedTranscript = parts.join("\n\n---\n\n")
-    const mergePrompt = buildCompactionUserPrompt(input.profile, {
-      transcript: truncateToTokenBudget(mergedTranscript, Math.floor(available * 0.9)),
-      instruction: input.profile.instructions.merge,
-      ...(previousSummary === undefined ? {} : { previousSummary }),
-      ...(taskMemory === undefined ? {} : { taskMemory }),
-    })
-    const merged = await valid(mergePrompt, "merge")
-    return merged ? { text: merged, attempts } : undefined
-  }
-
-  const recordAfter = async (backupID: string | undefined, request: LLMRequest): Promise<void> => {
-    await backups.recordAfter(
-      backupID,
-      request,
-      estimate(request.system, request.messages, request.tools),
-    )
-  }
-
-  return {
-    budget: () => ({ ...options }),
-    estimate,
-    compactIfNeeded,
-    compactAfterOverflow,
-    recordAfter,
   }
 }
 
-/** 从模型窗口推导预算；小窗口下主动收紧输出和保留区，避免固定参数直接失效。 */
-export const calculateCompactionBudget = (config: CoreConfig): CompactionBudget => {
+/** 从模型窗口推导压缩预算。32K 窗口也会给摘要留下接近 4K 的输出空间。 */
+export const calculateCompactionBudget = (
+  config: Pick<ModelConfig, "contextWindow" | "maxOutputTokens">,
+): CompactionBudget => {
   const contextWindow = Math.max(2_048, config.contextWindow)
+  const maxOutputTokens = Math.max(1, config.maxOutputTokens)
   const outputTokens = Math.max(
-    512,
-    Math.min(config.maxOutputTokens, Math.floor(contextWindow * 0.25)),
+    1,
+    Math.min(maxOutputTokens, Math.floor(contextWindow * 0.25)),
   )
   const safetyMargin = Math.min(
     4_096,
     Math.max(256, Math.floor(contextWindow * 0.05)),
   )
-  const hardInputTokens = Math.max(1_024, contextWindow - outputTokens - safetyMargin)
+  const hardInputTokens = Math.max(
+    1_024,
+    contextWindow - outputTokens - safetyMargin,
+  )
   const triggerTokens = Math.max(768, Math.floor(hardInputTokens * 0.85))
   const targetTokens = Math.max(512, Math.floor(hardInputTokens * 0.65))
   const keepTokens = Math.max(
     256,
     Math.min(8_000, Math.floor(targetTokens * 0.25)),
   )
-  const summaryOutputTokens = Math.max(
-    256,
-    Math.min(4_096, Math.floor(contextWindow * 0.08)),
+  const summaryOutputTokens = Math.min(
+    maxOutputTokens,
+    Math.max(256, Math.min(4_096, Math.floor(contextWindow * 0.125))),
   )
   const summaryInputTokens = Math.max(
     512,
@@ -588,111 +472,111 @@ export const calculateCompactionBudget = (config: CoreConfig): CompactionBudget 
   }
 }
 
-const splitMessagesForSummary = (messages: Message[], budget: number): Message[][] => {
-  const chunks: Message[][] = []
-  let current: Message[] = []
-  let used = 0
-
-  for (const message of messages) {
-    const size = estimateMessageTokens(message)
-    if (current.length > 0 && used + size > budget) {
-      chunks.push(current)
-      current = []
-      used = 0
-    }
-    current.push(message)
-    used += size
-  }
-  if (current.length > 0) chunks.push(current)
-  return chunks
-}
-
-const truncateToTokenBudget = (text: string, budget: number): string => {
-  const estimated = estimateTextTokens(text)
-  if (estimated <= budget) return text
-  const ratio = Math.max(0.05, budget / Math.max(estimated, 1))
-  return truncate(text, Math.max(200, Math.floor(text.length * ratio)))
-}
-
-const delay = (ms: number, signal: AbortSignal | undefined): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new Error("已取消"))
-      return
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort)
-      resolve()
-    }, ms)
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      reject(new Error("已取消"))
-    }
-    signal?.addEventListener("abort", onAbort, { once: true })
-  })
-
-interface FallbackSummaryInput {
-  profile: CompactionProfile
+interface SummaryPromptInput {
   previousSummary?: string
-  task: TaskState | undefined
-  todos: Todo[]
-  subject: Message[]
-  tail: Message[]
-  maxTokens: number
+  transcript: string
+  additionalSections?: readonly CompactionSection[]
 }
 
-/**
- * 模型摘要不可用时生成确定性 checkpoint。
- *
- * 这里不调用模型，也不依赖用户提示词或配置标题，避免配置本身不可用时连降级
- * 路径一起失效。任务状态只在配置允许、且确实存在任务时注入。
- */
-const buildFallbackSummary = (input: FallbackSummaryInput): string => {
-  const messages = [...input.subject, ...input.tail]
-  const recentMessages = renderTranscript(messages.slice(-8))
-  const lines = [
-    "## 引擎降级检查点",
-    "模型摘要不可用。以下内容由引擎从已有上下文确定性生成，可能缺少部分过程细节。",
-  ]
-  if (input.previousSummary) {
-    lines.push("", "### 上一份摘要", input.previousSummary)
+const buildSummaryPrompt = (input: SummaryPromptInput): string => {
+  const builder = new CompactionPromptBuilder()
+  builder.addSection(
+    COMPACTION_SECTION_TITLES.previousSummary,
+    () => input.previousSummary ?? "",
+  )
+  for (const section of input.additionalSections ?? []) {
+    builder.addSection(section.title, section.content)
   }
-  if (input.profile.includeTaskState && input.task) {
-    lines.push(
-      "",
-      "### 当前任务状态",
-      taskMemorySummary(input.task, input.todos),
-    )
-  }
-  lines.push("", "### 最近对话", recentMessages)
-  return truncateToTokenBudget(lines.join("\n"), input.maxTokens)
+  builder.addSection(
+    COMPACTION_SECTION_TITLES.transcript,
+    () => input.transcript,
+  )
+  return builder.build()
 }
 
-/**
- * 把历史按「保留最近一段原文」切成两段。
- *
- * 从尾部往前累加估算 token，直到超过 keepTokens 为止，那之前的全部进 head。
- * 至少要保留一条消息在 tail 里：如果连最后一条都被算进 head，
- * 执行 compaction 后模型会完全失去最近发生的事情。
- */
-const splitHistory = (history: Message[], keepTokens: number): { head: Message[]; tail: Message[] } => {
+const validateSummary = (
+  text: string,
+  finish: string,
+  headings: readonly string[],
+): CompactionFailure | undefined => {
+  if (finish === "length" || finish === "max_tokens") {
+    return { kind: "summary_truncated" }
+  }
+  if (text.trim().length === 0) return { kind: "summary_empty" }
+
+  const present = new Set<string>()
+  let fenced = false
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trimStart().startsWith("```")) {
+      fenced = !fenced
+      continue
+    }
+    if (fenced) continue
+    const match = /^##[ \t]+(.+?)[ \t]*$/.exec(line)
+    if (match?.[1] !== undefined) present.add(match[1])
+  }
+  const missingHeadings = headings.filter((heading) => !present.has(heading))
+  return missingHeadings.length === 0
+    ? undefined
+    : { kind: "summary_invalid", missingHeadings }
+}
+
+const providerFailure = (
+  error: unknown,
+  signal: AbortSignal | undefined,
+): CompactionFailure => {
+  if (signal?.aborted === true || (error instanceof Error && error.name === "AbortError")) {
+    return { kind: "aborted" }
+  }
+  if (error instanceof LLMError) {
+    if (error.kind === "aborted") return { kind: "aborted" }
+    if (error.kind === "context_overflow") {
+      return { kind: "summary_input_too_large" }
+    }
+    return {
+      kind: "provider_error",
+      message: error.message,
+      providerCode: error.kind,
+      ...(error.status === undefined ? {} : { status: error.status }),
+    }
+  }
+  return { kind: "provider_error", message: describeError(error) }
+}
+
+const failureMessage = (failure: CompactionFailure): string | undefined => {
+  switch (failure.kind) {
+    case "summary_invalid": {
+      const missing = failure.missingHeadings ?? []
+      return missing.length === 0
+        ? "摘要缺少必需的 Markdown 二级标题"
+        : `摘要缺少必需标题：${missing.join("、")}`
+    }
+    case "provider_error":
+      return failure.message
+    case "configuration_error":
+      return failure.message
+    default:
+      return undefined
+  }
+}
+
+const splitHistory = (
+  history: Message[],
+  keepTokens: number,
+): { head: Message[]; tail: Message[] } => {
   if (history.length === 0) return { head: [], tail: [] }
 
   let accumulated = 0
   let splitIndex = history.length
-
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const message = history[index]
     if (!message) break
     const tokens = estimateMessageTokens(message)
-    // 保留至少一条消息，同时保证累加不超过预算
     if (accumulated + tokens > keepTokens && accumulated > 0) break
     accumulated += tokens
     splitIndex = index
   }
 
-  // 尽可能从用户消息开始保留交换，但只有仍在预算内时才这样做。Coding Agent
-  // 的一个用户请求可能包含几十个 provider turn（模型调用轮次），不能因此让整个任务都变成保留区。
   if (splitIndex > 0 && splitIndex < history.length) {
     for (let index = splitIndex; index >= 0; index -= 1) {
       if (history[index]?.role === "user") {
@@ -702,24 +586,26 @@ const splitHistory = (history: Message[], keepTokens: number): { head: Message[]
     }
   }
 
-  // 至少保留最后一条消息，同时确保还有可摘要的历史。单个超长交换必须在
-  // 助手消息边界内切分；原始用户目标由独立任务状态继续携带。
   splitIndex = Math.min(splitIndex, history.length - 1)
   if (splitIndex === 0 && history.length > 1) splitIndex = 1
-
-  return { head: history.slice(0, splitIndex), tail: history.slice(splitIndex) }
+  return {
+    head: history.slice(0, splitIndex),
+    tail: history.slice(splitIndex),
+  }
 }
 
 const estimateMessagesTokens = (messages: Message[]): number =>
   messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
 
-/** 估算单条消息的体积，用于决定 compaction 边界。 */
 const estimateMessageTokens = (message: Message): number => {
   switch (message.role) {
     case "user":
       return estimateUserContentTokens(message.content)
     case "assistant":
-      return message.parts.reduce((sum, part) => sum + estimateTextTokens(textOfPart(part)), 0)
+      return message.parts.reduce(
+        (sum, part) => sum + estimateTextTokens(textOfPart(part)),
+        0,
+      )
     case "system":
       return estimateTextTokens(message.text)
     case "compaction":
@@ -741,18 +627,15 @@ const textOfPart = (part: Part): string => {
 }
 
 const toolOutputText = (part: Extract<Part, { type: "tool" }>): string => {
-  if (part.state.status === "success") return part.state.content.map((c) => (c.type === "text" ? c.text : "")).join("")
+  if (part.state.status === "success") {
+    return part.state.content
+      .map((content) => (content.type === "text" ? content.text : ""))
+      .join("")
+  }
   if (part.state.status === "error") return part.state.error
-  return "(尚未完成)"
+  return "（尚未完成）"
 }
 
-/**
- * 把待执行 compaction 的消息渲染成纯文本对话稿。
- *
- * 这里不用 provider 原生的消息格式，原因是摘要请求只需要「内容」，
- * 用纯文本可以避免工具调用配对等协议约束带来的额外复杂度，
- * 也方便对超长工具输出做更激进的截断。
- */
 const renderTranscript = (messages: Message[]): string =>
   messages
     .map((message) => {
@@ -762,7 +645,11 @@ const renderTranscript = (messages: Message[]): string =>
         case "assistant": {
           const parts = message.parts.map((part) => {
             if (part.type === "tool") {
-              return `[工具调用 ${part.name}]\n入参：${JSON.stringify(part.input ?? {})}\n结果：${truncate(toolOutputText(part), TRANSCRIPT_TOOL_OUTPUT_LIMIT)}`
+              return [
+                `[工具调用 ${part.name}]`,
+                `入参：${JSON.stringify(part.input ?? {})}`,
+                `结果：${truncate(toolOutputText(part), TRANSCRIPT_TOOL_OUTPUT_LIMIT)}`,
+              ].join("\n")
             }
             if (part.type === "reasoning") return ""
             return textOfPart(part)
@@ -777,7 +664,9 @@ const renderTranscript = (messages: Message[]): string =>
     })
     .join("\n\n")
 
-const textOfUserContent = (part: Extract<Message, { role: "user" }>["content"][number]): string =>
+const textOfUserContent = (
+  part: Extract<Message, { role: "user" }>["content"][number],
+): string =>
   part.type === "text" && typeof part.text === "string" ? part.text : "[图片]"
 
 const truncate = (text: string, limit: number): string => {
