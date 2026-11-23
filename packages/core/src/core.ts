@@ -3,7 +3,7 @@ import {
   createPromptProfileService,
   type PromptProfileService,
 } from "./prompt/index.js"
-import { loadCoreConfig, type CoreConfig } from "./config.js"
+import { EASYCODE_HOME_DIR, loadCoreConfig, type CoreConfig } from "./config.js"
 import { createConfigurationService, type ConfigurationService } from "./configuration.js"
 import { createEventHub, type EventHub } from "./events.js"
 import {
@@ -24,6 +24,9 @@ import { createSessionStore, type SessionStore } from "./session/store.js"
 import { createBuiltinTools } from "./tool/builtin/index.js"
 import { createToolRegistry, type ToolRegistry } from "./tool/registry.js"
 import { createWorkspaceManager, type WorkspaceManager } from "./workspace/manager.js"
+import { randomUUID } from "node:crypto"
+import { mkdir, rm, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 
 /**
  * Core 的组装入口。
@@ -54,8 +57,28 @@ export interface Core {
   questions: QuestionService
   tools: ToolRegistry
   logger: Logger
+  /** 返回 Core 负责维护的默认 workspace 与状态目录。 */
+  runtimeInfo(): RuntimeInfo
+  /** 初始化 Core 的持久化目录。重复调用会复用同一次初始化。 */
+  initialize(): Promise<void>
+  /** 读取当前运行时状态。模型未配置时 Core 可以初始化，但不会 ready。 */
+  status(): Promise<CoreStatus>
   /** 关闭运行时：中止所有运行中的回合，不再接受新的执行 */
   shutdown(): Promise<void>
+}
+
+export interface RuntimeInfo {
+  /** 默认工作区的绝对路径。 */
+  workspaceDirectory: string
+  /** Core 内部状态目录的绝对路径。 */
+  dataDir: string
+}
+
+export interface CoreStatus {
+  initialized: boolean
+  storageReady: boolean
+  modelConfigured: boolean
+  ready: boolean
 }
 
 export interface CreateCoreOptions {
@@ -73,6 +96,10 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   const logger = options.logger ?? createLogger("core")
   const config = options.config ?? loadCoreConfig()
   setLogLevel(config.logLevel)
+  let initialized = false
+  let storageReady = false
+  let initializePromise: Promise<void> | undefined
+  let shutdownPromise: Promise<void> | undefined
 
   const agents = createAgentRegistry()
   const promptProfiles = createPromptProfileService({
@@ -118,6 +145,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   })
   const workspaces = createWorkspaceManager({
     dataDir: config.dataDir,
+    defaultDirectory: EASYCODE_HOME_DIR,
     listSessions: () => sessions.list(),
     deleteSessionsByDirectory: async (directory) => {
       const matches = (await sessions.list()).filter((session) => session.directory === directory)
@@ -144,9 +172,74 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   // 双向依赖的收口点：会话管理器从此可以通过驱动唤醒回合
   sessions.setRunDriver(runner)
 
-  logger.info("Core 已就绪", {
+  const runtimeInfo = (): RuntimeInfo => ({
+    workspaceDirectory: EASYCODE_HOME_DIR,
+    dataDir: config.dataDir,
+  })
+
+  const initialize = (): Promise<void> => {
+    initializePromise ??= initializeStorage().then(
+      () => {
+        initialized = true
+        storageReady = true
+        logger.info("Core 初始化完成", runtimeInfo())
+      },
+      (error: unknown) => {
+        initializePromise = undefined
+        initialized = false
+        storageReady = false
+        throw error
+      },
+    )
+    return initializePromise
+  }
+
+  const initializeStorage = async (): Promise<void> => {
+    await mkdir(config.dataDir, { recursive: true, mode: 0o700 })
+    const probe = join(config.dataDir, `.ready-${randomUUID()}`)
+    try {
+      await writeFile(probe, "", { encoding: "utf8", mode: 0o600 })
+    } finally {
+      await rm(probe, { force: true }).catch(() => undefined)
+    }
+    await Promise.all([
+      mkdir(join(config.dataDir, "sessions"), { recursive: true, mode: 0o700 }),
+      mkdir(join(config.dataDir, "tool-output"), { recursive: true, mode: 0o700 }),
+      modelConfigs.list(),
+    ])
+  }
+
+  const status = async (): Promise<CoreStatus> => {
+    let modelConfigured = false
+    if (initialized && storageReady) {
+      try {
+        modelConfigured = (await modelConfigs.list()).length > 0
+      } catch (error) {
+        logger.warn("读取模型配置状态失败", { error })
+      }
+    }
+    return {
+      initialized,
+      storageReady,
+      modelConfigured,
+      ready: initialized && storageReady && modelConfigured,
+    }
+  }
+
+  const shutdown = (): Promise<void> => {
+    shutdownPromise ??= (async () => {
+      logger.info("正在关闭 Core")
+      await sessions.shutdown()
+      initialized = false
+      storageReady = false
+    })()
+    return shutdownPromise
+  }
+
+  logger.info("Core 已装配", {
     model: config.model,
     dataDir: config.dataDir,
+    workspaceDirectory: EASYCODE_HOME_DIR,
     baseToolCount: tools.definitions().length,
     agentCount: agents.all().length,
   })
@@ -166,9 +259,9 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     questions,
     tools,
     logger,
-    shutdown: async () => {
-      logger.info("正在关闭 Core")
-      await sessions.shutdown()
-    },
+    runtimeInfo,
+    initialize,
+    status,
+    shutdown,
   }
 }

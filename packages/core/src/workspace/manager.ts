@@ -23,6 +23,8 @@ export interface WorkspaceManager {
 
 export interface WorkspaceManagerDeps {
   dataDir: string
+  /** Core 默认工作区。独立 Server 与 runtimeInfo 必须复用同一个值。 */
+  defaultDirectory?: string
   /** 用于把升级前创建的会话目录补建为工作区。 */
   listSessions: () => Promise<Session[]>
   /** 删除目录下的全部会话记录。 */
@@ -43,7 +45,7 @@ export class WorkspaceDeleteError extends Error {
 export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceManager => {
   const logger = deps.logger ?? createLogger("workspace")
   const store = createWorkspaceStore(deps.dataDir)
-  const defaultDirectory = resolve(expandHome("~/easycode"))
+  const defaultDirectory = deps.defaultDirectory ?? resolve(expandHome("~/easycode"))
   let writes = Promise.resolve()
 
   const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
