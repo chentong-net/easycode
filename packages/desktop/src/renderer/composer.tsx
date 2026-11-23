@@ -333,7 +333,6 @@ export const Composer = ({
               disabled={configurationLocked || submitting || inputDisabled}
               aria-label="提示配置"
             >
-              <option value="">请选择提示配置</option>
               {profileMissing && (
                 <option value={promptProfileID}>提示配置已丢失</option>
               )}

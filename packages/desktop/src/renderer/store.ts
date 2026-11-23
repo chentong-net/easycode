@@ -295,7 +295,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     const session = scopedSessions.find((item) => item.id === activeSessionID)
     if (!session) return
     setPendingModelConfigIDState(session.modelConfigID ?? "")
-    setPendingPromptProfileIDState(session.promptProfileID ?? "")
+    setPendingPromptProfileIDState(session.promptProfileID ?? "coding")
     setPendingReasoningEffortState(session.reasoningEffort ?? "")
   }, [activeSessionID])
 
@@ -574,7 +574,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     const session = scopedSessions.find((item) => item.id === sessionID)
     if (session) {
       setPendingModelConfigIDState(session.modelConfigID ?? "")
-      setPendingPromptProfileIDState(session.promptProfileID ?? "")
+      setPendingPromptProfileIDState(session.promptProfileID ?? "coding")
       setPendingReasoningEffortState(session.reasoningEffort ?? "")
     }
   }, [scopedSessions])
