@@ -122,6 +122,28 @@ test("提示配置经过真实 HTTP 接口创建、更新并绑定到会话", as
   })
 })
 
+test("内置编程配置可读取完整提示词", async () => {
+  const response = await application.app.inject({
+    method: "GET",
+    url: "/api/prompt-profiles/coding",
+    headers: auth,
+  })
+
+  assert.equal(response.statusCode, 200, response.body)
+  const profile = response.json().data as {
+    id: string
+    name: string
+    systemPrompt: string
+    compactionSystemPrompt: string
+    compactionHeadings: string[]
+  }
+  assert.equal(profile.id, "coding")
+  assert.equal(profile.name, "编程")
+  assert.ok(profile.systemPrompt.length > 0)
+  assert.ok(profile.compactionSystemPrompt.length > 0)
+  assert.ok(profile.compactionHeadings.length > 0)
+})
+
 test("重复摘要标题返回明确业务错误", async () => {
   const response = await application.app.inject({
     method: "POST",

@@ -1937,6 +1937,12 @@ pre {
   padding-bottom: 0;
 }
 
+.settings-form-readonly .settings-field input,
+.settings-form-readonly .settings-field textarea {
+  cursor: default;
+  background: var(--bg-panel);
+}
+
 .settings-section-heading {
   display: flex;
   align-items: baseline;

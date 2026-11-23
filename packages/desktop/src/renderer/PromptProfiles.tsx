@@ -7,6 +7,7 @@ import type {
 import {
   Bot,
   ChevronLeft,
+  Eye,
   LoaderCircle,
   Pencil,
   Plus,
@@ -25,7 +26,9 @@ interface ProfileForm {
   compactionHeadings: string[]
 }
 
-type View = { kind: "list" } | { kind: "edit"; profileID?: string }
+type View =
+  | { kind: "list" }
+  | { kind: "edit"; profileID?: string; readOnly?: boolean }
 
 const EMPTY_FORM: ProfileForm = {
   name: "",
@@ -89,6 +92,8 @@ export const PromptProfilesDialog = ({
 
   if (!open) return null
 
+  const readOnly = view.kind === "edit" && view.readOnly === true
+
   const requestClose = (): void => {
     if (saving) return
     if (view.kind === "edit" && dirty && !window.confirm("放弃尚未保存的修改吗？")) return
@@ -113,8 +118,8 @@ export const PromptProfilesDialog = ({
     setError(undefined)
   }
 
-  const beginEdit = async (profileID: string): Promise<void> => {
-    setView({ kind: "edit", profileID })
+  const openProfile = async (profileID: string, readonly: boolean): Promise<void> => {
+    setView({ kind: "edit", profileID, readOnly: readonly })
     setLoading(true)
     setError(undefined)
     setDirty(false)
@@ -125,6 +130,14 @@ export const PromptProfilesDialog = ({
     } finally {
       setLoading(false)
     }
+  }
+
+  const beginEdit = async (profileID: string): Promise<void> => {
+    await openProfile(profileID, false)
+  }
+
+  const beginView = async (profileID: string): Promise<void> => {
+    await openProfile(profileID, true)
   }
 
   const remove = async (profile: PromptProfileSummary): Promise<void> => {
@@ -147,7 +160,7 @@ export const PromptProfilesDialog = ({
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
-    if (saving || view.kind !== "edit") return
+    if (saving || view.kind !== "edit" || readOnly) return
     const validation = validateForm(form)
     if (validation !== undefined) {
       setError(validation)
@@ -185,11 +198,17 @@ export const PromptProfilesDialog = ({
             <h2 id="prompt-profile-title">
               {view.kind === "list"
                 ? "提示配置"
-                : view.profileID === undefined
-                  ? "新建提示配置"
-                  : "编辑提示配置"}
+                : readOnly
+                  ? "查看提示配置"
+                  : view.profileID === undefined
+                    ? "新建提示配置"
+                    : "编辑提示配置"}
             </h2>
-            <p>主对话和上下文压缩共用一个场景配置，保存后用于后续回合。</p>
+            <p>
+              {readOnly
+                ? "内置编程配置由代码提供，仅供查看，不能修改或删除。"
+                : "主对话和上下文压缩共用一个场景配置，保存后用于后续回合。"}
+            </p>
           </div>
           <button
             type="button"
@@ -226,7 +245,16 @@ export const PromptProfilesDialog = ({
                           <p>{profile.description ?? "未填写描述"}</p>
                         </div>
                         <div className="compaction-profile-actions">
-                          {!builtIn && (
+                          {builtIn ? (
+                            <button
+                              type="button"
+                              className="btn btn-small"
+                              onClick={() => void beginView(profile.id)}
+                            >
+                              <Eye size={13} />
+                              查看
+                            </button>
+                          ) : (
                             <>
                               <button
                                 type="button"
@@ -259,7 +287,7 @@ export const PromptProfilesDialog = ({
               )}
             </div>
             <footer className="settings-footer compaction-profile-list-footer">
-              <span>内置编程配置不可修改或删除。</span>
+              <span>内置编程配置可查看，但不可修改或删除。</span>
               <button type="button" className="btn btn-primary" onClick={beginCreate}>
                 <Plus size={14} />
                 新建提示配置
@@ -267,7 +295,10 @@ export const PromptProfilesDialog = ({
             </footer>
           </>
         ) : (
-          <form className="settings-form" onSubmit={(event) => void submit(event)}>
+          <form
+            className={`settings-form${readOnly ? " settings-form-readonly" : ""}`}
+            onSubmit={(event) => void submit(event)}
+          >
             <div className="settings-body">
               {loading ? (
                 <div className="settings-loading">正在读取提示配置…</div>
@@ -283,6 +314,7 @@ export const PromptProfilesDialog = ({
                         <span>名称</span>
                         <input
                           value={form.name}
+                          readOnly={readOnly}
                           onChange={(event) =>
                             updateForm(setForm, setDirty, { name: event.target.value })
                           }
@@ -294,6 +326,7 @@ export const PromptProfilesDialog = ({
                         <span>描述</span>
                         <input
                           value={form.description}
+                          readOnly={readOnly}
                           onChange={(event) =>
                             updateForm(setForm, setDirty, {
                               description: event.target.value,
@@ -316,6 +349,7 @@ export const PromptProfilesDialog = ({
                       <textarea
                         className="compaction-profile-textarea"
                         value={form.systemPrompt}
+                        readOnly={readOnly}
                         onChange={(event) =>
                           updateForm(setForm, setDirty, {
                             systemPrompt: event.target.value,
@@ -336,6 +370,7 @@ export const PromptProfilesDialog = ({
                       <textarea
                         className="compaction-profile-textarea"
                         value={form.compactionSystemPrompt}
+                        readOnly={readOnly}
                         onChange={(event) =>
                           updateForm(setForm, setDirty, {
                             compactionSystemPrompt: event.target.value,
@@ -349,19 +384,21 @@ export const PromptProfilesDialog = ({
                   <section className="settings-section">
                     <div className="settings-section-heading">
                       <h3>摘要内容标题</h3>
-                      <button
-                        type="button"
-                        className="btn btn-small"
-                        disabled={form.compactionHeadings.length >= 12}
-                        onClick={() =>
-                          updateForm(setForm, setDirty, {
-                            compactionHeadings: [...form.compactionHeadings, ""],
-                          })
-                        }
-                      >
-                        <Plus size={13} />
-                        添加标题
-                      </button>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          disabled={form.compactionHeadings.length >= 12}
+                          onClick={() =>
+                            updateForm(setForm, setDirty, {
+                              compactionHeadings: [...form.compactionHeadings, ""],
+                            })
+                          }
+                        >
+                          <Plus size={13} />
+                          添加标题
+                        </button>
+                      )}
                     </div>
                     <div className="compaction-profile-headings">
                       {form.compactionHeadings.map((heading, index) => (
@@ -369,6 +406,7 @@ export const PromptProfilesDialog = ({
                           <span>##</span>
                           <input
                             value={heading}
+                            readOnly={readOnly}
                             onChange={(event) =>
                               updateForm(setForm, setDirty, {
                                 compactionHeadings: form.compactionHeadings.map(
@@ -380,24 +418,26 @@ export const PromptProfilesDialog = ({
                             placeholder="例如：人物状态"
                             maxLength={100}
                           />
-                          <button
-                            type="button"
-                            className="settings-close"
-                            onClick={() =>
-                              updateForm(setForm, setDirty, {
-                                compactionHeadings:
-                                  form.compactionHeadings.length === 1
-                                    ? [""]
-                                    : form.compactionHeadings.filter(
-                                        (_, itemIndex) => itemIndex !== index,
-                                      ),
-                              })
-                            }
-                            aria-label="删除标题"
-                            title="删除标题"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              className="settings-close"
+                              onClick={() =>
+                                updateForm(setForm, setDirty, {
+                                  compactionHeadings:
+                                    form.compactionHeadings.length === 1
+                                      ? [""]
+                                      : form.compactionHeadings.filter(
+                                          (_, itemIndex) => itemIndex !== index,
+                                        ),
+                                })
+                              }
+                              aria-label="删除标题"
+                              title="删除标题"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -410,10 +450,12 @@ export const PromptProfilesDialog = ({
                 <ChevronLeft size={14} />
                 返回列表
               </button>
-              <button type="submit" className="btn btn-primary" disabled={saving || loading}>
-                {saving && <LoaderCircle size={14} className="settings-test-spinner" />}
-                {saving ? "保存中…" : "保存"}
-              </button>
+              {!readOnly && (
+                <button type="submit" className="btn btn-primary" disabled={saving || loading}>
+                  {saving && <LoaderCircle size={14} className="settings-test-spinner" />}
+                  {saving ? "保存中…" : "保存"}
+                </button>
+              )}
             </footer>
           </form>
         )}
