@@ -19,6 +19,12 @@ const codingProfile = {
 }
 
 let application: Awaited<ReturnType<typeof createApplication>>
+let coreStatus = {
+  initialized: true,
+  storageReady: true,
+  modelConfigured: true,
+  ready: true,
+}
 
 before(async () => {
   const logger = {
@@ -72,6 +78,11 @@ before(async () => {
         platforms: [{ platform: "base64", displayName: "Base64" }],
       }),
     },
+    runtimeInfo: () => ({
+      workspaceDirectory: "/home/test/easycode",
+      dataDir: "/home/test/easycode/.easycode",
+    }),
+    status: async () => coreStatus,
   } as unknown as Core
 
   application = await createApplication({ core, token, logger })
@@ -94,12 +105,76 @@ test("health uses the success envelope", async () => {
     message: "SUCCESS",
     data: {
       ok: true,
-      version: "0.18.0",
+      version: "0.19.0",
       model: "test-model",
       contextWindow: 128_000,
       maxOutputTokens: 8_192,
     },
   })
+})
+
+test("runtimeInfo is provided by Core through the success envelope", async () => {
+  const response = await application.app.inject({
+    method: "GET",
+    url: "/api/runtime-info",
+    headers: auth,
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), {
+    code: 0,
+    message: "SUCCESS",
+    data: {
+      workspaceDirectory: "/home/test/easycode",
+      dataDir: "/home/test/easycode/.easycode",
+    },
+  })
+})
+
+test("liveness and readiness probes do not require the API token", async () => {
+  const liveness = await application.app.inject({
+    method: "GET",
+    url: "/healthz",
+  })
+  assert.equal(liveness.statusCode, 200)
+  assert.deepEqual(liveness.json(), { status: "ok" })
+
+  const readiness = await application.app.inject({
+    method: "GET",
+    url: "/readyz",
+  })
+  assert.equal(readiness.statusCode, 200)
+  assert.deepEqual(readiness.json(), {
+    status: "ready",
+    checks: { storage: true, model: true },
+  })
+})
+
+test("readiness returns 503 while the model is not configured", async () => {
+  coreStatus = {
+    initialized: true,
+    storageReady: true,
+    modelConfigured: false,
+    ready: false,
+  }
+  try {
+    const response = await application.app.inject({
+      method: "GET",
+      url: "/readyz",
+    })
+    assert.equal(response.statusCode, 503)
+    assert.deepEqual(response.json(), {
+      status: "not_ready",
+      checks: { storage: true, model: false },
+    })
+  } finally {
+    coreStatus = {
+      initialized: true,
+      storageReady: true,
+      modelConfigured: true,
+      ready: true,
+    }
+  }
 })
 
 test("image platforms are loaded through the success envelope", async () => {

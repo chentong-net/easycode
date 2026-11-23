@@ -52,6 +52,36 @@ export const HealthResponse = z.object({
 export type HealthResponse = z.infer<typeof HealthResponse>
 
 /**
+ * Server 持有的默认 workspace 与 Core 状态目录。
+ *
+ * 客户端只能消费这两个路径，不能自行读取文件系统或拼装默认路径。
+ */
+export const RuntimeInfoResponse = z.object({
+  workspaceDirectory: z.string().min(1),
+  dataDir: z.string().min(1),
+})
+
+export type RuntimeInfoResponse = z.infer<typeof RuntimeInfoResponse>
+
+/** 进程存活检查，不依赖 Core 业务状态。 */
+export const LivenessResponse = z.object({
+  status: z.literal("ok"),
+})
+
+export type LivenessResponse = z.infer<typeof LivenessResponse>
+
+/** Core 是否已经具备接受业务请求的状态。 */
+export const ReadinessResponse = z.object({
+  status: z.enum(["ready", "not_ready"]),
+  checks: z.object({
+    storage: z.boolean(),
+    model: z.boolean(),
+  }),
+})
+
+export type ReadinessResponse = z.infer<typeof ReadinessResponse>
+
+/**
  * Agent 的对外描述。
  *
  * 只暴露 id 与描述：系统提示词和权限规则属于运行时内部信息，

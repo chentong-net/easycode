@@ -4,6 +4,7 @@ import {
   AgentListResponse,
   ApiResponse,
   HealthResponse,
+  RuntimeInfoResponse,
 } from "@easycode/protocol"
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod"
 
@@ -35,6 +36,16 @@ export const systemRoutes: FastifyPluginAsyncZod<SystemRoutesOptions> = async (
         maxOutputTokens: budget.outputTokens,
       } satisfies HealthResponse)
     },
+  )
+
+  app.get(
+    "/runtime-info",
+    {
+      schema: {
+        response: { 200: ApiResponse(RuntimeInfoResponse) },
+      },
+    },
+    async () => success(options.core.runtimeInfo()),
   )
 
   app.get(

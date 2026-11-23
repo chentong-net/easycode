@@ -22,6 +22,7 @@ import { promptProfileRoutes } from "./routes/prompt-profiles.js"
 import { configRoutes } from "./routes/config.js"
 import { imageRoutes } from "./routes/images.js"
 import { modelConfigRoutes } from "./routes/model-configs.js"
+import { operationsRoutes } from "./routes/operations.js"
 import { sessionRoutes } from "./routes/sessions.js"
 import { systemRoutes } from "./routes/system.js"
 import { workspaceRoutes } from "./routes/workspaces.js"
@@ -65,6 +66,7 @@ export const createApplication = async (
 
   app.addHook("onRequest", async (request) => {
     if (request.method === "OPTIONS") return
+    if (isPublicOperationsPath(request)) return
     if (!isAuthorized(options.token, request)) {
       throw new HttpError(401, "缺少或错误的访问令牌")
     }
@@ -125,6 +127,7 @@ export const createApplication = async (
   })
 
   const routeContext = { core: options.core, logger: options.logger }
+  await app.register(operationsRoutes, routeContext)
   await app.register(systemRoutes, { prefix: "/api", ...routeContext })
   await app.register(modelConfigRoutes, { prefix: "/api/model-configs", ...routeContext })
   await app.register(promptProfileRoutes, {
@@ -148,6 +151,13 @@ const isAuthorized = (
 ): boolean => {
   if (expected === undefined || expected.length === 0) return true
   return request.headers[AUTH_HEADER] === expected
+}
+
+const PUBLIC_OPERATIONS_PATHS = new Set(["/healthz", "/readyz"])
+
+const isPublicOperationsPath = (request: FastifyRequest): boolean => {
+  const path = request.raw.url?.split("?", 1)[0]
+  return path !== undefined && PUBLIC_OPERATIONS_PATHS.has(path)
 }
 
 const statusForError = (error: FastifyError | Error): number => {

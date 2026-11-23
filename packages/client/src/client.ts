@@ -30,6 +30,7 @@ import {
   RenameSessionRequest,
   RuntimeConfigResponse,
   RuntimeConfigUpdateRequest,
+  RuntimeInfoResponse,
   SessionListResponse,
   SessionConfigurationRequest,
   SessionResponse,
@@ -108,6 +109,8 @@ export interface EventStreamOptions {
 export interface EasyCodeClient {
   /** 健康检查。渲染层用它读取模型与上下文窗口信息。 */
   health(signal?: AbortSignal): Promise<HealthResponse>
+  /** Core 持有的默认 workspace 与状态目录。 */
+  runtimeInfo(signal?: AbortSignal): Promise<RuntimeInfoResponse>
   /** 可用的 agent 列表 */
   agents(signal?: AbortSignal): Promise<AgentInfo[]>
   modelConfigs: {
@@ -204,6 +207,7 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
 
   return {
     health: (signal) => get(transport, Endpoints.health(), HealthResponse, signal),
+    runtimeInfo: (signal) => get(transport, Endpoints.runtimeInfo(), RuntimeInfoResponse, signal),
     agents: (signal) => get(transport, Endpoints.agents(), AgentListResponse, signal),
 
     modelConfigs: {

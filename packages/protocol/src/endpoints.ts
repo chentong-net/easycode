@@ -18,7 +18,7 @@ export const API_PREFIX = "/api"
  * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
  * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
-export const API_VERSION = "0.18.0"
+export const API_VERSION = "0.19.0"
 
 /** 鉴权头名称。桌面端的渲染进程从 preload 拿到 token 后放在这个头里。 */
 export const AUTH_HEADER = "x-easycode-token"
@@ -42,6 +42,9 @@ export const sessionPath = (sessionID: string): string => `${API_PREFIX}/session
 export const Endpoints = {
   /** 健康检查。渲染层用它读取模型与上下文窗口信息；主进程通过就绪文件判断 sidecar 是否启动完成。 */
   health: (): string => `${API_PREFIX}/health`,
+
+  /** Core 持有的默认 workspace 与状态目录。 */
+  runtimeInfo: (): string => `${API_PREFIX}/runtime-info`,
 
   /** 可用的 agent 列表 */
   agents: (): string => `${API_PREFIX}/agents`,
