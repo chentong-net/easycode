@@ -400,7 +400,7 @@ export const Composer = ({
 
 const fallbackCodingProfile = (): PromptProfileSummary => ({
   id: "coding",
-  name: "Coding",
+  name: "编程",
   description: "默认编程与代码修改场景",
   createdAt: 0,
   updatedAt: 0,

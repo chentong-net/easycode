@@ -9,7 +9,7 @@ const token = "test-token"
 const auth = { "x-easycode-token": token }
 const codingProfile = {
   id: "coding",
-  name: "Coding",
+  name: "编程",
   description: "默认编程与代码修改场景",
   systemPrompt: "你是一个编程助手。",
   compactionSystemPrompt: "整理编程记忆",
@@ -49,11 +49,11 @@ before(async () => {
         name: input.name,
       }),
       update: async () => {
-        throw new Error("内置 Coding 提示配置不能修改")
+        throw new Error("内置编程配置不能修改")
       },
       get: async (id: string) => (id === "coding" ? codingProfile : undefined),
       delete: async () => {
-        throw new Error("内置 Coding 提示配置不能删除")
+        throw new Error("内置编程配置不能删除")
       },
     },
     sessions: {
@@ -124,7 +124,7 @@ test("prompt profile list only exposes summaries", async () => {
   const data = response.json().data as Array<Record<string, unknown>>
   assert.deepEqual(data[0], {
     id: "coding",
-    name: "Coding",
+    name: "编程",
     description: "默认编程与代码修改场景",
     createdAt: 0,
     updatedAt: 0,
@@ -145,7 +145,7 @@ test("built-in prompt profile cannot be deleted", async () => {
   assert.equal(response.statusCode, 200)
   assert.deepEqual(response.json(), {
     code: -1,
-    message: "内置 Coding 提示配置不能删除",
+    message: "内置编程配置不能删除",
   })
 })
 

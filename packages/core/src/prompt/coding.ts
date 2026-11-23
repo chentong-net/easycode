@@ -7,7 +7,7 @@ export const CODING_PROMPT_PROFILE_ID = "coding"
 /** 内置编程场景提示词，随代码发布且不写入用户目录。 */
 export const codingPromptProfile = PromptProfile.parse({
   id: CODING_PROMPT_PROFILE_ID,
-  name: "Coding",
+  name: "编程",
   description: "默认编程与代码修改场景",
   systemPrompt: BUILD_SYSTEM_PROMPT,
   compactionSystemPrompt: `你是一个 Coding Agent 的工作记忆压缩器，负责把较早对话整理成可供后续继续工作的结构化 checkpoint（检查点）。

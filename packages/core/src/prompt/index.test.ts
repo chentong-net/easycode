@@ -48,7 +48,7 @@ after(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 
-test("内置 Coding 始终存在、时间为零且不可修改或删除", async () => {
+test("内置编程配置始终存在、时间为零且不可修改或删除", async () => {
   const service = createPromptProfileService({ dataDir: directory, logger })
   const profiles = await service.list()
 

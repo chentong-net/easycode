@@ -23,7 +23,7 @@ export const PROMPT_PROFILE_REQUIRED_MESSAGE = "请选择提示配置。"
 export const PROMPT_PROFILE_MISSING_MESSAGE = "当前会话使用的提示配置已不存在，无法继续对话。"
 
 export interface PromptProfileService {
-  /** 内置 Coding 在前，自定义配置随后。 */
+  /** 内置编程配置在前，自定义配置随后。 */
   list(): Promise<PromptProfile[]>
   get(id: string): Promise<PromptProfile | undefined>
   require(id: string): Promise<PromptProfile>
@@ -167,7 +167,7 @@ export const createPromptProfileService = (
     input: PromptProfileDraftType,
   ): Promise<PromptProfile> => {
     if (id === CODING_PROMPT_PROFILE_ID) {
-      throw new Error("内置 Coding 提示配置不能修改")
+      throw new Error("内置编程配置不能修改")
     }
     const current = await readCustom(id)
     if (!current) throw new Error(`提示配置不存在：${id}`)
@@ -189,7 +189,7 @@ export const createPromptProfileService = (
 
   const remove = async (id: string): Promise<void> => {
     if (id === CODING_PROMPT_PROFILE_ID) {
-      throw new Error("内置 Coding 提示配置不能删除")
+      throw new Error("内置编程配置不能删除")
     }
     if (!isCustomProfileID(id) || (await readCustom(id)) === undefined) {
       throw new Error(`提示配置不存在：${id}`)

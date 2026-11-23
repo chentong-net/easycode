@@ -189,7 +189,7 @@ export const PromptProfilesDialog = ({
                   ? "新建提示配置"
                   : "编辑提示配置"}
             </h2>
-            <p>主对话和 compaction 共用一个场景配置，保存后用于后续回合。</p>
+            <p>主对话和上下文压缩共用一个场景配置，保存后用于后续回合。</p>
           </div>
           <button
             type="button"
@@ -259,7 +259,7 @@ export const PromptProfilesDialog = ({
               )}
             </div>
             <footer className="settings-footer compaction-profile-list-footer">
-              <span>内置 Coding 不可修改或删除。</span>
+              <span>内置编程配置不可修改或删除。</span>
               <button type="button" className="btn btn-primary" onClick={beginCreate}>
                 <Plus size={14} />
                 新建提示配置
@@ -308,7 +308,7 @@ export const PromptProfilesDialog = ({
 
                   <section className="settings-section">
                     <div className="settings-section-heading">
-                      <h3>systemPrompt</h3>
+                      <h3>系统提示词</h3>
                       <span>用于主对话 Agent</span>
                     </div>
                     <label className="settings-field">
@@ -328,8 +328,8 @@ export const PromptProfilesDialog = ({
 
                   <section className="settings-section">
                     <div className="settings-section-heading">
-                      <h3>compactionSystemPrompt</h3>
-                      <span>仅用于生成上下文 checkpoint</span>
+                      <h3>摘要系统提示词</h3>
+                      <span>仅用于生成上下文摘要检查点</span>
                     </div>
                     <label className="settings-field">
                       <span>定义摘要器角色、场景关注点和信息取舍</span>
@@ -348,7 +348,7 @@ export const PromptProfilesDialog = ({
 
                   <section className="settings-section">
                     <div className="settings-section-heading">
-                      <h3>compactionHeadings</h3>
+                      <h3>摘要内容标题</h3>
                       <button
                         type="button"
                         className="btn btn-small"
@@ -433,9 +433,9 @@ const updateForm = (
 
 const validateForm = (form: ProfileForm): string | undefined => {
   if (form.name.trim().length === 0) return "请填写提示配置名称"
-  if (form.systemPrompt.trim().length === 0) return "请填写 systemPrompt"
+  if (form.systemPrompt.trim().length === 0) return "请填写系统提示词"
   if (form.compactionSystemPrompt.trim().length === 0) {
-    return "请填写 compactionSystemPrompt"
+    return "请填写摘要系统提示词"
   }
   const headings = form.compactionHeadings.map((heading) => heading.trim()).filter(Boolean)
   if (headings.length === 0) return "至少需要一个摘要标题"

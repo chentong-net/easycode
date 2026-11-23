@@ -60,7 +60,7 @@ npm install
 
 Reasoning Level 由后端提供，当前包括 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`。模型配置一个 level 都不选时，第三级下拉框不出现；配置了 level 但会话选择“不指定”时，请求同样不发送 `reasoning_effort`，使用模型自身默认行为。显式选择具体值时，正常会话和标题生成会复用该值；compaction 摘要请求刻意不继承 reasoning，避免额外推理占用已经紧张的 32K 窗口。
 
-桌面端设置按钮左侧的机器人按钮打开「提示配置管理」。内置 `Coding` 直接定义在代码中，始终可用且不可修改或删除；用户新建的提示配置保存在 `~/easycode/.easycode/prompt/`，保存后立即热加载。旧 `compaction-profile/` 仅在读取时用于字段迁移。新建和已有会话都可以重新选择提示配置，每次选择都会更新会话元数据。
+桌面端设置按钮左侧的机器人按钮打开「提示配置管理」。内置「编程」配置直接定义在代码中，始终可用且不可修改或删除；用户新建的提示配置保存在 `~/easycode/.easycode/prompt/`，保存后立即热加载。旧 `compaction-profile/` 仅在读取时用于字段迁移。新建和已有会话都可以重新选择提示配置，每次选择都会更新会话元数据。
 
 新建会话的输入框按「模型配置 → 提示配置 → 思考强度」顺序选择。第三级仅在所选模型配置声明了至少一个 level 时出现，并且只显示该模型配置支持的 level；它可以选择“不指定”，此时直接发送消息并使用模型默认行为。模型配置、提示配置和思考强度都只以 ID/值写入会话元信息，每次重新选择都会更新会话；配置文件被删除后可以直接改选其他有效配置。会话运行期间暂不允许切换，避免请求中途换配置。
 
@@ -348,7 +348,7 @@ provider 报告上下文超限时，Runner 会执行一次 overflow compaction�
 | PUT | `/api/model-configs/{id}` | 更新模型配置并增加 revision |
 | POST | `/api/model-configs/{id}/test` | 使用已保存的模型配置测试连接 |
 | DELETE | `/api/model-configs/{id}` | 删除模型配置；不检查会话引用 |
-| GET | `/api/prompt-profiles` | 提示配置摘要列表，内置 Coding 始终位于首项 |
+| GET | `/api/prompt-profiles` | 提示配置摘要列表，内置编程配置始终位于首项 |
 | GET | `/api/prompt-profiles/{id}` | 读取完整提示配置，用于编辑表单 |
 | POST | `/api/prompt-profiles` | 新建并保存用户提示配置 |
 | PUT | `/api/prompt-profiles/{id}` | 更新用户提示配置；内容未变化时不改写 `updatedAt` |
@@ -390,7 +390,7 @@ provider 报告上下文超限时，Runner 会执行一次 overflow compaction�
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
   sessions/<会话ID>/context.json    epoch（上下文周期）状态
-  prompt/<ID>.json                  用户提示配置，内置 Coding 不在此目录
+  prompt/<ID>.json                  用户提示配置，内置编程配置不在此目录
   compaction-contexts/<会话ID>/<YYYYMMDDHHmm-t预估Token-compactionID>/
                                      compaction 前后的完整请求与摘要诊断
   tool-output/tool_*.txt            超长工具输出的落盘文件
