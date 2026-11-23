@@ -199,16 +199,11 @@ export const PromptProfilesDialog = ({
               {view.kind === "list"
                 ? "提示配置"
                 : readOnly
-                  ? "查看提示配置"
+                  ? "查看提示词配置"
                   : view.profileID === undefined
                     ? "新建提示配置"
-                    : "编辑提示配置"}
+                    : "编辑提示词配置"}
             </h2>
-            <p>
-              {readOnly
-                ? "内置编程配置由代码提供，仅供查看，不能修改或删除。"
-                : "主对话和上下文压缩共用一个场景配置，保存后用于后续回合。"}
-            </p>
           </div>
           <button
             type="button"
@@ -363,7 +358,7 @@ export const PromptProfilesDialog = ({
                   <section className="settings-section">
                     <div className="settings-section-heading">
                       <h3>摘要系统提示词</h3>
-                      <span>仅用于生成上下文摘要检查点</span>
+                      <span>仅用于生成上下文摘要</span>
                     </div>
                     <label className="settings-field">
                       <span>定义摘要器角色、场景关注点和信息取舍</span>
