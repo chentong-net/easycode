@@ -11,7 +11,7 @@ EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在
 | `@easycode/schema` | 语义值：工作区、会话、消息、事件、工具、权限、用量 | — |
 | `@easycode/protocol` | 接口契约：端点常量、请求与响应 DTO、错误分类 | schema |
 | `@easycode/core` | Agent 运行时：回合循环、上下文组装、工具执行、权限判定、事件日志 | schema |
-| `@easycode/server` | 使用 Fastify 把 Core 绑定到 HTTP 与 SSE | core、protocol |
+| `@easycode/server` | 独立服务入口：使用 Fastify 把 Core 绑定到 HTTP 与 SSE | core、protocol |
 | `@easycode/client` | TypeScript 客户端，供界面调用 HTTP 接口 | protocol |
 | `@easycode/cli` | 命令行入口 | core、server、protocol、schema |
 | `@easycode/desktop` | Electron 外壳、本地 sidecar 与渲染层 | core、server、client、protocol、schema |
@@ -114,7 +114,13 @@ npm run build       # 按依赖顺序构建全部包
 npm run typecheck   # 各包执行 tsc --noEmit
 npm test            # 运行服务端接口测试、Client 响应解析测试和图片 Adapter 测试
 npm run clean       # 清理 dist 与 release 目录
+
+# 只构建 Core 与 Server 依赖链并启动本地服务
+npm run build:server
+npm run start:server
 ```
+
+`start:server` 使用当前默认的 Core 路径与回环监听参数，尚未提供独立部署配置。
 
 ## 命令行
 
@@ -232,11 +238,11 @@ npm run package --workspace @easycode/desktop
 | 进程 | 职责 |
 | --- | --- |
 | 主进程 | 创建窗口、拉起 sidecar、把服务地址与访问令牌注入预加载脚本、提供系统目录选择 |
-| 预加载脚本 | 通过 `contextBridge` 暴露 `serverUrl`、`serverToken`、`platform`、`homeDirectory`、`selectDirectory` |
+| 预加载脚本 | 通过 `contextBridge` 暴露 `serverUrl`、`serverToken`、`platform`、`selectDirectory` |
 | 渲染进程 | 自有 React 消息界面，经 HTTP 与 SSE 读取 Core 状态 |
 | sidecar | 由 `utilityProcess` 拉起，内部加载 Core 并在回环地址上启动 HTTP 服务，就绪后把地址写入握手文件 |
 
-服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，工作区、会话、消息、工具调用均经 HTTP 接口完成。窗口标题栏与侧边栏、会话标题栏合并，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
+服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，工作区路径、状态目录、会话、消息和工具调用均经 HTTP 接口完成。客户端不能自行读取文件系统或拼装默认路径。窗口标题栏与侧边栏、会话标题栏合并，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
 
 开发模式与打包后的桌面端都从 `~/easycode/.easycode/config/` 读取多份 TOML 配置。
 
@@ -340,7 +346,10 @@ provider 报告上下文超限时，Runner 会执行一次 overflow compaction�
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
+| GET | `/healthz` | 进程存活检查，不要求 token，不依赖 Core 业务状态 |
+| GET | `/readyz` | Core 存储与模型配置就绪检查，未就绪返回 `503` |
 | GET | `/api/health` | 服务状态、协议版本、模型 id、上下文窗口与输出预算 |
+| GET | `/api/runtime-info` | Core 提供的默认 workspace 与服务端数据目录 |
 | GET | `/api/agents` | 可用 agent 列表 |
 | GET | `/api/images/platforms` | 当前已注册的图片平台 |
 | GET | `/api/model-configs` | 模型配置摘要、后端支持的 reasoning level 集合 |
@@ -419,6 +428,8 @@ provider 报告上下文超限时，Runner 会执行一次 overflow compaction�
 - 模型配置支持多个 reasoning level；空列表或用户选择“不指定”时不发送 `reasoning_effort`
 - 新旧会话都持久化 `modelConfigID`、`promptProfileID` 和可选 `reasoningEffort`，重新选择时更新；旧 `compactionProfileID` 只在读取会话时迁移
 - 运行配置覆盖模型连接、上下文与输出预算、温度、附加请求头、网页搜索/读取和日志级别；数据目录固定，不参与配置；接口不会返回已保存的密钥明文
+- 默认 workspace 与 `dataDir` 只由 Core 维护，客户端通过 `GET /api/runtime-info` 获取，不能自行读取或拼装
+- Server 提供无鉴权的 `/healthz` 与 `/readyz`；后者在模型未配置时返回 `503`
 - 基础工具覆盖读代码、找代码、改代码、执行命令、管进度和必要澄清
 - 配置 Provider 与对应 API Key 后增加网页搜索或网页读取
 - 多工作区：桌面端可添加多个本地目录，按工作区展示会话，并支持右键重命名、置顶和删除
