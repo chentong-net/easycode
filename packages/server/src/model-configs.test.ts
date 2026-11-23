@@ -196,6 +196,13 @@ test("旧会话可补齐并重新选择思考强度", async () => {
   })
   assert.equal(changedResponse.statusCode, 200)
   assert.equal(changedResponse.json().data.reasoningEffort, "low")
+
+  const removedModel = await application.app.inject({
+    method: "DELETE",
+    url: `/api/model-configs/${modelConfigID}`,
+    headers: { "x-easycode-token": token },
+  })
+  assert.equal(removedModel.statusCode, 200)
 })
 
 const testConfig = (): CoreConfig => ({
